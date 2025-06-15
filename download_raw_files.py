@@ -6,7 +6,7 @@ urls = [
     "https://dgidb.org/data/latest/interactions.tsv", # DGIdb
     "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-4.4.246/BIOGRID-CHEMICALS-4.4.246.chemtab.zip", # BioGrid
     "https://api.pharmgkb.org/v1/download/file/data/relationships.zip", # PharmaGKB
-    # CTD to add
+    "https://ctdbase.org/reports/CTD_chem_gene_ixns.csv.gz" # CTD
     # ChEMBL to add
 ]
 
