@@ -26,18 +26,18 @@ print("="*31)
 print("- Import DGI (Drug Gene Interactions)")  
 # columns: gene_name, drug_name and database (BioGrid, ChEMBL, CTD, DGIdb, PharmaGKB)
 # Code from 'Networks.ipynb' Point 1: Drug-Gene-Interactions
-dgi_df = pd.read_csv("./results/DGI/DGI_Final.csv", index_col=0)
+dgi_df = pd.read_csv("./data/DGI_Final.csv", index_col=0)
 
 print("- Import PPI-Template (String Database)")
 # columns: source, target
 # Code from 'Networks.ipynb' Point 3: Protein-Protein-Network
-ppi_df = pd.read_csv("./results/PPI/final_PPI_String.csv", index_col=0)
+ppi_df = pd.read_csv("./data/final_PPI_String.csv", index_col=0)
 
 ####################
 # Step 1: Preprocess 
 
 # cell-line and drug sample dataset of TUGDA (GDSC)
-gdsc_dataset = pd.read_csv('/sybig/home/tmu/TUGDA/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
+gdsc_dataset = pd.read_csv('/Users/tm03/Desktop/TUGDA_1/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
 gene_list = gdsc_dataset.columns[0:1780]
 drug_list = gdsc_dataset.columns[1780:]
 
