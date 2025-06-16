@@ -33,9 +33,9 @@ os.makedirs(ppi_path, exist_ok=True)
 # Step 3: Download Files from Each URL
 # ------------------------------------
 
-print("\n" + "="*31)
-print("Step 1: Download Files from URL")
-print("="*31)
+print("\n" + "="*23)
+print("Download Files from URL")
+print("="*23)
 
 # Download each file
 for url in urls:
