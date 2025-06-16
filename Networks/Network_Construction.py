@@ -20,8 +20,9 @@ print("\n" + "="*31)
 print("Step 1: Download and Preprocess")
 print("="*31)
 
-######################################
+# ------------------------------------
 # Step 0: Download biological networks
+# ------------------------------------
 
 print("- Import DGI (Drug Gene Interactions)")  
 # columns: gene_name, drug_name and database (BioGrid, ChEMBL, CTD, DGIdb, PharmaGKB)
@@ -31,13 +32,16 @@ dgi_df = pd.read_csv("./data/DGI_Final.csv", index_col=0)
 print("- Import PPI-Template (String Database)")
 # columns: source, target
 # Code from 'Networks.ipynb' Point 3: Protein-Protein-Network
-ppi_df = pd.read_csv("./data/final_PPI_String.csv", index_col=0)
+# ppi_df = pd.read_csv("./data/final_PPI_String.csv", index_col=0)
+ppi_df = pd.read_csv("/sybig/home/tmu/Schreibtisch/Thesis/Networks/results/PPI/final_PPI_String.csv", index_col=0)
 
-####################
+# ------------------
 # Step 1: Preprocess 
+# ------------------
 
 # cell-line and drug sample dataset of TUGDA (GDSC)
-gdsc_dataset = pd.read_csv('/Users/tm03/Desktop/TUGDA_1/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
+# gdsc_dataset = pd.read_csv('/Users/tm03/Desktop/TUGDA_1/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
+gdsc_dataset = pd.read_csv('/sybig/home/tmu/TUGDA/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
 gene_list = gdsc_dataset.columns[0:1780]
 drug_list = gdsc_dataset.columns[1780:]
 
@@ -55,8 +59,9 @@ drug_target_info = drug_target_info[["gene_name", "drug_name"]]
 print("Final Dataframe 'drug_target_info")
 print(drug_target_info.head())
 
-######################
+# --------------------
 # Step 2: Create Edges 
+# --------------------
 
 print("\n" + "="*20)
 print("Step 2: Create Edges")
@@ -189,8 +194,9 @@ final_network = pd.concat([
 print(f"- Final network contains {final_network.shape[0]:,} unique edges.")
 print(final_network.head())
 
-############################################
+# ------------------------------------------
 # Step 3: Create binary matrix for each drug
+# ------------------------------------------
 
 # Directory to save the matrices
 output_dir = "./results/Network"
@@ -252,8 +258,9 @@ for drug in tqdm(drug_list, desc="Drug Processing"):
     )
 
 
-############################################
+# --------------------------------------
 # Step 4: Graph-Representation (Example)
+# --------------------------------------
 
 # import networkx as nx
 # import matplotlib.pyplot as plt

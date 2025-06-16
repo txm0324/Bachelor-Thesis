@@ -9,7 +9,8 @@ from tqdm import tqdm
 output_dir = "./results/Network"
 
 # Load the GDSC dataset (contains gene expression data and drug response values) to define the drug names
-gdsc_dataset = pd.read_csv('/Users/tm03/Desktop/TUGDA_1/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
+# gdsc_dataset = pd.read_csv('/Users/tm03/Desktop/TUGDA_1/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
+gdsc_dataset = pd.read_csv('/sybig/home/tmu/TUGDA/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
 drug_list = gdsc_dataset.columns[1780:]
 
 # Create a directory to store CSV files for each drug's matrix
