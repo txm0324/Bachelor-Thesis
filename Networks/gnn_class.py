@@ -1,4 +1,5 @@
 import pandas as pd # read Dataframe 
+import torch
 from torch_geometric.data import Dataset, Data # for creating graph-based datasets
 import os # for file and directory operations 
 import numpy as np # for numerical computations with arrays 
@@ -104,6 +105,7 @@ class DrugNetworkDataset(Dataset):
     def processed_file_names(self):
         """ If these files exist in processed_dir, processing is skipped """
         return ['placeholder.pt'] # not implemented 
+        #  return [f'data_{i}.pt' for i in range(len(self.samples))]
 
     def download(self):
         pass 
@@ -117,6 +119,21 @@ class DrugNetworkDataset(Dataset):
     def _get_node_features(self, nodes, cell_line):
         x = []
         for node in nodes:
+            if node in self.gene_list:
+                 # If the node is a gene, get its expression value for the given cell line and type [expr, is_gene, is_pathway]
+                expr_value = self.expression_data.loc[cell_line, node]
+                x.append([float(expr_value), 1.0, 0.0])  # [expr, is_gene, is_pathway]
+            elif node in self.pathway_list:
+                # If the node is a pathway, use a default feature value of 0.0
+                x.append([0.0, 0.0, 1.0])  # [expr_dummy, is_gene, is_pathway]
+            else:
+                # Unknown node
+                x.append([0.0, 0.0, 0.0])  # [expr_dummy, is_gene, is_pathway]
+        return torch.tensor(x, dtype=torch.float)
+
+        ''' Code for just Gene expression value: 
+        x = []
+        for node in nodes:
              # If the node is a gene, get its expression value for the given cell line
             if node in self.gene_list:
                 expr_value = self.expression_data.loc[cell_line, node]
@@ -127,6 +144,7 @@ class DrugNetworkDataset(Dataset):
             else:
                 x.append([0.0])
         return torch.tensor(x, dtype=torch.float)
+        ''' 
     
     # Qucik check fuction for debugging
     def get_node_name_by_index(self, idx, node_index):
@@ -174,6 +192,14 @@ class DrugNetworkDataset(Dataset):
         data.nodes = nodes
 
         return data
+    
+    def process(self):
+        pass # Skip right now, can be implemented to store the output files in your
+        '''
+        for i in range(len(self.samples)):
+            data = self.get(i)
+            torch.save(data, os.path.join(self.processed_dir, f'data_{i}.pt'))
+        '''
 
 # Run class
 dataset = DrugNetworkDataset(
@@ -195,7 +221,7 @@ print("Edge Index (COO format):") # tensor([a,b], [c,d]): node a is conntected t
 print(data.edge_index.t())
 print(data.edge_index.t().shape) # Tensor of shape [num_edges, 2]
 
-print("\nNode Features (x):") # Gene expression values of gene_x with Cell line
+print("\nNode Features (x):") # Gene expression values of gene_x with Cell line and is_gene, is_pathway
 print(data.x)
 print(data.x.shape) # Tensor of shape [num_nodes, num_node_features]
 
@@ -203,7 +229,7 @@ nodes = data.nodes
 
 for i in range(10):
     node_name = nodes[i]
-    feature_value = data.x[i].item()
+    feature_value = data.x[i][0].item()  # Just take the first feature (gene expression)
     print(f"Index {i}: {node_name} → Feature: {feature_value:.4f}")
 
 print("\nLabel (y):") # log_IC50 value for the drug-cell line combination
