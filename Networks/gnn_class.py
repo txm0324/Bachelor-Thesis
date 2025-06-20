@@ -4,57 +4,13 @@ from torch_geometric.data import Dataset, Data # for creating graph-based datase
 import os # for file and directory operations 
 import numpy as np # for numerical computations with arrays 
 import gseapy as gp # for retrieving pathway information
-
+from tqdm import tqdm 
 
 # Creating a Custom Dataset in Pytorch Geometric 
-
-# -----------------------------------
-# Step 0: Load and Prepare DataFrames
-# -----------------------------------
-
-print("\n" + "="*31)
-print("Step 0: Download and Preprocess")
-print("="*31)
-
-# Load the full GDSC dataset (FPKM + AUC values for all drugs)
-gdsc_dataset = pd.read_csv('/sybig/home/tmu/TUGDA/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
-
-# Extract gene and drug columns:
-# - First 1780 columns correspond to gene expression data
-# - Remaining columns represent drug AUC values
-gene_list = gdsc_dataset.columns[0:1780]
-drug_list = gdsc_dataset.columns[1780:] 
-
-# Retrieve KEGG pathways using gseapy
-kegg_gmt = gp.parser.get_library('KEGG_2021_Human', organism='Human', min_size=3, max_size=2000)
-pathway_list = list(kegg_gmt.keys())
-
-# Gene Expression Data (FPKM values)
-expression_data = gdsc_dataset.iloc[:, :1780]
-
-# Response Data: Combine log_IC50 values from 3-fold cross-validation test sets
-response_1 = pd.read_csv("/sybig/home/tmu/TUGDA/data/cl_y_test_o_k1.csv", index_col=0)
-response_2 = pd.read_csv("/sybig/home/tmu/TUGDA/data/cl_y_test_o_k2.csv", index_col=0)
-response_3 = pd.read_csv("/sybig/home/tmu/TUGDA/data/cl_y_test_o_k3.csv", index_col=0)
-response_data = pd.concat([response_1, response_2, response_3], axis=0, ignore_index=False)
-
-# Sort both datasets by index to ensure alignment
-expression_data = expression_data.sort_index()
-response_data = response_data.sort_index()
-
-# Remove duplicate indices (keep first occurrence) to avoid conflicts during merging
-expression_data = expression_data[~expression_data.index.duplicated(keep='first')]
-labels_df = response_data[~response_data.index.duplicated(keep='first')] 
-
-print("\n" + "Done!")
 
 ###################
 ### GNN Dataset ###
 ###################
-
-print("\n" + "="*33)
-print("Step 1: GNN Dataset & Quick Check")
-print("="*33)
 
 class DrugNetworkDataset(Dataset):
     def __init__(self, root, drug_list, gene_list, pathway_list, labels_df, expression_data, transform=None, pre_transform=None):
@@ -90,6 +46,9 @@ class DrugNetworkDataset(Dataset):
         # Define custom raw_dir
         self.custom_raw_dir = os.path.join(root, 'drug_matrices_csv')
 
+        # Define Catch to save graphs 
+        self.graph_cache = {}
+
         super(DrugNetworkDataset, self).__init__(root, transform, pre_transform)
 
     @property
@@ -104,19 +63,48 @@ class DrugNetworkDataset(Dataset):
     @property
     def processed_file_names(self):
         """ If these files exist in processed_dir, processing is skipped """
-        return ['placeholder.pt'] # not implemented 
-        #  return [f'data_{i}.pt' for i in range(len(self.samples))]
+        return [f'drug_{drug}_cellline_{cell_line}.pt' for drug, cell_line in self.samples]
 
     def download(self):
         pass 
 
     def _load_adjacency_matrix(self, drug):
         """ Loads the adjacency matrix for every drug """
+
+        # Check if the graph for this drug is already cached to avoid reloading
+        if drug in self.graph_cache:
+            return self.graph_cache[drug]
+
+        # Load the adjacency matrix from the CSV file
         csv_path = os.path.join(self.raw_dir, f"{drug}_matrix.csv")
         df = pd.read_csv(csv_path, index_col=0)
-        return df
+
+        # Extract node names
+        nodes = df.columns.tolist()
+
+        # Convert the DataFrame to a NumPy array representing the adjacency matrix
+        adj_matrix = df.values
+
+        # Get the indices of non-zero elements in the adjacency matrix to construct edges
+        # This returns a 2D array where each row corresponds to source and target node indices
+        edge_index = torch.tensor(np.array(np.nonzero(adj_matrix)), dtype=torch.long)
+
+        # Store the processed graph data (nodes and edges) in a dictionary
+        graph_data = {
+            "nodes": nodes,
+            "edge_index": edge_index
+        }
+
+        # Cache the graph data for this drug to avoid redundant computation
+        self.graph_cache[drug] = graph_data
+
+        return graph_data
 
     def _get_node_features(self, nodes, cell_line):
+        """ 
+        This will return a matrix / 2d array othe shape [Number of edges, Edge Feature size]
+        Each Feature represent: [Expression value, is_gene, is_pathway]
+        """
         x = []
         for node in nodes:
             if node in self.gene_list:
@@ -130,21 +118,6 @@ class DrugNetworkDataset(Dataset):
                 # Unknown node
                 x.append([0.0, 0.0, 0.0])  # [expr_dummy, is_gene, is_pathway]
         return torch.tensor(x, dtype=torch.float)
-
-        ''' Code for just Gene expression value: 
-        x = []
-        for node in nodes:
-             # If the node is a gene, get its expression value for the given cell line
-            if node in self.gene_list:
-                expr_value = self.expression_data.loc[cell_line, node]
-                x.append([float(expr_value)]) # Append as a single-element list 
-            elif node in self.pathway_list:
-                # If the node is a pathway, use a default feature value of 0.0
-                x.append([0.0])
-            else:
-                x.append([0.0])
-        return torch.tensor(x, dtype=torch.float)
-        ''' 
     
     # Qucik check fuction for debugging
     def get_node_name_by_index(self, idx, node_index):
@@ -164,24 +137,21 @@ class DrugNetworkDataset(Dataset):
         Returns the total number of samples (drug-cell line combinations)
         useful for classes such as datasets for machine learning so that they are compatible with len() and for loops 
         """
-        return len(self.samples)
-
+        return len(self.samples) 
+    
     def get(self, idx):
-        """
-        In standard PyG datasets, get() loads preprocessed data saved via process(); 
-        here the preprocessing step is skipped and construct each drug–cell line graph directly in get(), 
-        as preprocessing wouldn't reduce computation time
-        """
         drug, cell_line = self.samples[idx]
 
         # Load adjacency matric for each drug 
-        adj_df = self._load_adjacency_matrix(drug)
-        nodes = adj_df.columns.tolist()
-        adj_matrix = adj_df.values
-        # Build edge_index in COO format
-        edge_index = torch.tensor(np.array(np.nonzero(adj_matrix)), dtype=torch.long)
-        # Get node_features
+        graph_data = self._load_adjacency_matrix(drug)
+        nodes = graph_data["nodes"]
+
+        # Get edge_index in COO format
+        edge_index = graph_data["edge_index"]
+
+        # Get Node Features 
         x = self._get_node_features(nodes, cell_line)
+
         # Get label info (log_IC50 value for each drug-cell line combination)
         y = torch.tensor([self.labels_df.loc[cell_line, drug]], dtype=torch.float)
 
@@ -192,46 +162,23 @@ class DrugNetworkDataset(Dataset):
         data.nodes = nodes
 
         return data
-    
+
     def process(self):
-        pass # Skip right now, can be implemented to store the output files in your
-        '''
-        for i in range(len(self.samples)):
-            data = self.get(i)
-            torch.save(data, os.path.join(self.processed_dir, f'data_{i}.pt'))
-        '''
+        """ Processing the dataset by converting each sample into a graph data object and saving it to disk """
+        pass
+    
+        """ 
+        When you want to save each drug, include the follwoing code instead of pass, BUT ATTENTION! 
+        You will save 805 * 200 Combination (- 24340 NaN labels in labels_df), each file has a memory of 896KB
 
-# Run class
-dataset = DrugNetworkDataset(
-    root="./results/Network/",
-    drug_list=drug_list,
-    gene_list=gene_list,
-    pathway_list=pathway_list,
-    labels_df=labels_df, 
-    expression_data=expression_data
-)
+        print(f"Processing dataset: {len(self.samples)} graphs to save")
+        # Iterate over all samples ((drug, cell_line) pair)
+        for idx, (drug, cell_line) in tqdm(enumerate(self.samples), total=len(self.samples), desc="Processing Graphs"):
+            filename = f'drug_{drug}_cellline_{cell_line}.pt'
+            pt_path = os.path.join(self.processed_dir, filename)
 
-# Qucik Ckeck with results
-data = dataset[0] # graph-base representations of drug-cell line pairs (200 * 1780)
-
-print("Drug Name:", data.drug)
-print("Cell Line Name:", data.cell_line)
-
-print("Edge Index (COO format):") # tensor([a,b], [c,d]): node a is conntected to node b and node c is conntected to node d
-print(data.edge_index.t())
-print(data.edge_index.t().shape) # Tensor of shape [num_edges, 2]
-
-print("\nNode Features (x):") # Gene expression values of gene_x with Cell line and is_gene, is_pathway
-print(data.x)
-print(data.x.shape) # Tensor of shape [num_nodes, num_node_features]
-
-nodes = data.nodes
-
-for i in range(10):
-    node_name = nodes[i]
-    feature_value = data.x[i][0].item()  # Just take the first feature (gene expression)
-    print(f"Index {i}: {node_name} → Feature: {feature_value:.4f}")
-
-print("\nLabel (y):") # log_IC50 value for the drug-cell line combination
-print(data.y)
-print(data.y.shape) # Tensor of shape [1]
+            # Only process and save if the file doesn't already exist
+            if not os.path.exists(pt_path):
+                data = self.get(idx)
+                torch.save(data, pt_path)
+        """
