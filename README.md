@@ -1,7 +1,7 @@
-# Bachelor Thesis Project: [Your Thesis Title]
+# Bachelor Thesis Project: Optimizing the prediction of oncological drug responses by integrating biological network information into the deep learning framework [TUGDA](https://github.com/CSB5/TUGDA)
 - token: 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
 
-This repository contains the code implementation for my Bachelor Thesis titled "[Your Thesis Title]". The project focuses on [briefly describe your thesis topic in 1-2 sentences].
+This repository contains the code implementation for my Bachelor Thesis titled "Optimizing the Prediction of Oncological Drug Responses by Integrating Biological Network Information into the Deep Learning Framework TUGDA." The project focuses on evaluating the performance of TUGDA in predicting drug responses based on omics data, with the aim of improving its accuracy through the integration of biological extensions. To achieve this, interactions such as drug–gene, drug–pathway, and protein–protein interactions are incorporated into the model architecture. 
 
 ## Prerequisites 
 
@@ -25,21 +25,20 @@ The project follows this sequential workflow:
 
 1. Network Construction
    ```bash
-   Network_Construction.py: Builds the initial graph structure
+   Network_Construction.py: Builds the initial graph structure, including direct and indirect targets and their pathway connections, using databases such as ChEMBL and BioGrid
 2. Matrix Construction
    ```bash
-   build_matrix.py: Creates for each drug the adjadency representation of the network
+   build_matrix.py: Creates the adjacency matrix representation of the network for each drug
 3. Data Preparation
    ```bash
-   Train_Test_Data.py: Splite data into training and testings sets
+   Train_Test_Data.py: Splits the data into training and testing sets
 4. Model implentation 
    ```bash
-   Extension_TUGDA_MTL.py: Extension of TUGDA Implementation with additional features
+   Extension_TUGDA_MTL.py: Extension of TUGDA implementation with additional features
 
 ## How to Run
 Execute the scripts in the following order: 
 - python3 Network_Construction.py
 - python3 build_matrix.py
-- python3 Train_Test_Data.py
 - python3 Extension_TUGDA_MTL.py
   
