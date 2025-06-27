@@ -156,6 +156,17 @@ class tugda_mtl_gnn(pl.LightningModule):
         # Stack and average embeddings (or concatenate if you want task-specific features)
         x = torch.stack(embeddings).mean(dim=0).squeeze(0)  # shape: [gnn_output_dim]
 
+        # BATCH_SIZE = 20
+        # embeddings = []
+        # for i in range(0, len(drug_graphs), BATCH_SIZE):
+        #     mini_batch = Batch.from_data_list(drug_graphs[i:i + BATCH_SIZE]).to(self.device)
+        #     mini_emb = self.gnn_encoder(mini_batch)  # [mini_batch_size, gnn_output_dim]
+        #     embeddings.append(mini_emb.cpu())
+
+        # graph_embs = torch.cat(embeddings, dim=0).to(self.device)
+        # x = graph_embs.mean(dim=0)
+
+
         # Project to hidden space
         x = self.projection(x)  # shape: [hidden_units_1]
 
@@ -227,7 +238,6 @@ class tugda_mtl_gnn(pl.LightningModule):
         for k in range(labels.size(1)):
             mask = ~torch.isnan(labels[:, k])
             if not mask.any():
-                per_task_loss[k] = torch.nan
                 continue  # Überspringe Tasks ohne Label
             diff = mse_loss(preds[mask, k], labels[mask, k])
             precision = torch.exp(-self.log_vars[k])
@@ -283,12 +293,12 @@ class tugda_mtl_gnn(pl.LightningModule):
         labels_tensor = [batch_size, num_tasks]
         """
 
-        print("Starting forward_pass")
+        # print("Starting forward_pass")
         drug_graphs_list, labels_tensor = batch
-        print(f"Number of drug graphs: {len(drug_graphs_list)}")
+        # print(f"Number of drug graphs: {len(drug_graphs_list)}")
 
         labels_tensor = labels_tensor.squeeze(1)
-        print("labels_tensor shape:", labels_tensor.shape)
+        # print("labels_tensor shape:", labels_tensor.shape)
 
         # Wir erwarten: drug_graphs_list ist eine Liste von Graphen einer Zelllinie
         # Also: Iteriere über jeden Drug-Graphen und encode ihn
@@ -306,9 +316,9 @@ class tugda_mtl_gnn(pl.LightningModule):
         preds_var = preds_simulation.var(dim=0)    # [1, num_tasks]
         total_unc = preds_var.mean(dim=0)          # [num_tasks]
 
-        print("preds_mean.shape:", preds_mean.shape)
-        print("preds_var.shape:", preds_var.shape)
-        print("total_unc.shape:", total_unc.shape)
+        # print("preds_mean.shape:", preds_mean.shape)
+        # print("preds_var.shape:", preds_var.shape)
+        # print("total_unc.shape:", total_unc.shape)
 
         # Loss Calculation
         local_loss, task_loss = self.mse_ignore_nan(preds_mean, labels_tensor)
@@ -331,13 +341,16 @@ class tugda_mtl_gnn(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         # batch is a PyG Data object, no need to unpack
         loss, task_loss = self.forward_pass(batch, batch_idx)
-        self.log('train_loss', loss)
+        self.log('train_loss', loss, prog_bar=True, logger=True)
         return loss
 
-    
     def test_step(self, test_batch, batch_idx):
         cell_line_graphs, labels = test_batch
         labels = labels.squeeze(1)
+
+        # Dropout einschalten (train mode) bei relevanten Modulen
+        self.feature_extractor[1].train()
+        self.latent_basis[1].train()
 
         preds_simulation = []
 
@@ -346,19 +359,34 @@ class tugda_mtl_gnn(pl.LightningModule):
             preds_per_pass = []
 
             for graph in cell_line_graphs:
-                pred, _, _ = self.forward([graph])  # Wir rufen forward mit einer einzelnen Drug-Liste auf
+                pred, _, _ = self.forward([graph])
                 preds_per_pass.append(pred)
 
             preds_simulation.append(torch.cat(preds_per_pass, dim=0))
 
         preds_mean = torch.mean(torch.stack(preds_simulation), dim=0).unsqueeze(0)
-        loss, task_losses = self.mse_ignore_nan_test(preds_mean, labels.unsqueeze(0))
+        labels = labels.squeeze()
+        if labels.dim() == 1:
+            labels = labels.unsqueeze(0)
+
+        print(f"Preds mean shape: {preds_mean.shape}")
+        print(f"Labels shape for loss calculation: {labels.shape}")
+
+        loss, task_losses = self.mse_ignore_nan_test(preds_mean, labels)
+
+        # Dropout ausschalten (eval mode)
+        self.feature_extractor[1].eval()
+        self.latent_basis[1].eval()
+
+        self.log('test_loss', loss)
+        print(f"Test loss batch {batch_idx}: {loss.item()}")
 
         return {
             'test_loss': loss,
             'test_preds': preds_mean.detach().cpu().numpy(),
             'test_task_losses_per_class': task_losses.detach().cpu().numpy()
         }
+
     
 """ Test mit einem Batch """    
 net_params_test = {

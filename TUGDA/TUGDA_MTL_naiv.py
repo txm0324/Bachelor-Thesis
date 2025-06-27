@@ -327,9 +327,16 @@ for k in range(1,4):
     y_test = test_data_report['y_k_fold{}'.format(k)].values
 
     # Extension 
-    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix], weights=[1])
-    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[pathway_matrix], weights=[1])
-    
+    # Gene-Interaction:
+    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix], weights=[1])
+    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix], weights=[1])
+    # Pathway-Interaction:
+    # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix], weights=[1])
+    # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[pathway_matrix], weights=[1])
+    # Combination
+    # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix, pathway_matrix], weights=[0.5,0.5])
+    # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix, pathway_matrix], weights=[0.5,0.5])
+
     # Input dimensions
     net_params['input_dim'] = X_train.shape[1]
 
@@ -386,6 +393,11 @@ print("Durchschnittlicher MSE über Tasks:", np.mean(task_mses))
 median_mse = np.median(task_mses)
 print("Median-MSE über Tasks:", median_mse)
 
+# Save as txt file 
+np.savetxt("task_mses_gene.csv", task_mses, delimiter=",", header="MSEs", comments='')
+# np.savetxt("task_mses_pathway.csv", task_mses, delimiter=",", header="MSEs", comments='')
+# np.savetxt("task_mses_combination.csv", task_mses, delimiter=",", header="MSEs", comments='')
+
 # Pearson Correlation 
 num_tasks = y_test.shape[1]  # Number of Task
 pearson_corrs = []
@@ -405,6 +417,11 @@ for i in range(num_tasks):
 pearson_corrs = np.array(pearson_corrs)
 
 print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
+
+# Save as txt file 
+np.savetxt("task_pearson_corrs_gene.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
+# np.savetxt("task_pearson_corrs_pathway.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
+# np.savetxt("task_pearson_corrs_combination.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
 
 '''
 np.savez_compressed(

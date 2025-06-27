@@ -328,6 +328,9 @@ print("Durchschnittlicher MSE über Tasks:", np.mean(task_mses))
 median_mse = np.median(task_mses)
 print("Median-MSE über Tasks:", median_mse)
 
+# Save as txt file 
+np.savetxt("task_mses.csv", task_mses, delimiter=",", header="MSEs", comments='')
+
 # Pearson Correlation 
 num_tasks = y_test.shape[1]  # Number of Task
 pearson_corrs = []
@@ -347,6 +350,9 @@ for i in range(num_tasks):
 pearson_corrs = np.array(pearson_corrs)
 
 print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
+
+# Save as txt file 
+np.savetxt("task_pearson_corrs.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
 
 '''
 np.savez_compressed(
