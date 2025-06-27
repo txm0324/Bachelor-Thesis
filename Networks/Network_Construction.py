@@ -29,7 +29,7 @@ print("- Import DGI (Drug Gene Interactions)")
 # Code from 'Networks.ipynb' Point 1: Drug-Gene-Interactions
 dgi_df = pd.read_csv("./data/DGI_Final.csv", index_col=0)
 
-print("- Import PPI-Template (String Database)")
+print("- Import PPI-Template (String & IntAct Database)")
 # columns: source, target
 # Code from 'Networks.ipynb' Point 3: Protein-Protein-Network
 ppi_df_STRING = pd.read_csv("./data/final_PPI_String.csv")

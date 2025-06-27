@@ -5,6 +5,7 @@ import os # for file and directory operations
 import numpy as np # for numerical computations with arrays 
 import gseapy as gp # for retrieving pathway information
 from tqdm import tqdm 
+import time 
 
 # Creating a Custom Dataset in Pytorch Geometric 
 
@@ -36,12 +37,22 @@ class DrugNetworkDataset(Dataset):
         self.labels_df = labels_df
         self.expression_data = expression_data
 
+        unique_cell_lines = labels_df.index.unique()
+        self.samples = [(cell_line,) for cell_line in unique_cell_lines]
+        print(len(self.samples))
+
+        '''
+        Single:
         # Get all combination of Drug + Cell Line
+        unique_cell_lines = labels_df.index.unique()
+        unique_drugs = labels_df['drug'].unique()
+
         self.samples = [
-            (drug, cell_line) 
-            for drug in self.drug_list 
-            for cell_line in self.labels_df.index
+            (drug, cell_line)
+            for drug in unique_drugs
+            for cell_line in unique_cell_lines
         ]
+        ''' 
 
         # Define custom raw_dir
         self.custom_raw_dir = os.path.join(root, 'drug_matrices_csv')
@@ -63,7 +74,7 @@ class DrugNetworkDataset(Dataset):
     @property
     def processed_file_names(self):
         """ If these files exist in processed_dir, processing is skipped """
-        return [f'drug_{drug}_cellline_{cell_line}.pt' for drug, cell_line in self.samples]
+        return [f'cellline_{cell_line}.pt' for cell_line in self.samples]
 
     def download(self):
         pass 
@@ -140,6 +151,40 @@ class DrugNetworkDataset(Dataset):
         return len(self.samples) 
     
     def get(self, idx):
+        cell_line = self.samples[idx][0]
+
+        # get all drugs for this cell-line (every time should be 200 drugs)
+        cell_drugs = self.labels_df[self.labels_df.index == cell_line]['drug'].unique()
+
+        drug_graphs = []
+        ic50_values = []
+
+        for drug in cell_drugs:
+            # Load adjacency matric for each drug 
+            graph_data = self._load_adjacency_matrix(drug)
+            nodes = graph_data["nodes"]
+            edge_index = graph_data["edge_index"]
+
+            # Get Node Features 
+            x = self._get_node_features(nodes, cell_line)
+
+            # Get label info (log_IC50 value for each drug-cell line combination)
+            response = self.labels_df[(self.labels_df.index == cell_line) &  (self.labels_df['drug'] == drug)]['response'].values
+            y = torch.tensor([response[0]], dtype=torch.float)
+
+            # Create data object
+            data = Data(x=x, edge_index=edge_index, y=y, drug=drug, cell_line=cell_line, nodes=nodes)
+            drug_graphs.append(data)
+            ic50_values.append(response[0])
+
+        # Convert IC50-values in tensor
+        ic50_tensor = torch.tensor(ic50_values, dtype=torch.float) # shape: [num_tasks]
+
+        return drug_graphs, ic50_tensor
+    
+    '''
+    Single:
+    def get(self, idx):
         drug, cell_line = self.samples[idx]
 
         # Load adjacency matric for each drug 
@@ -153,7 +198,9 @@ class DrugNetworkDataset(Dataset):
         x = self._get_node_features(nodes, cell_line)
 
         # Get label info (log_IC50 value for each drug-cell line combination)
-        y = torch.tensor([self.labels_df.loc[cell_line, drug]], dtype=torch.float)
+        response = self.labels_df[(self.labels_df.index == cell_line) &  (self.labels_df['drug'] == drug)]['response'].values
+        y = torch.tensor([response[0]], dtype=torch.float)
+        # y = torch.tensor([self.labels_df.loc[cell_line, drug]], dtype=torch.float)
 
         # Create data object
         data = Data(x=x, edge_index=edge_index, y=y, drug=drug, cell_line=cell_line)
@@ -162,6 +209,7 @@ class DrugNetworkDataset(Dataset):
         data.nodes = nodes
 
         return data
+    '''
 
     def process(self):
         """ Processing the dataset by converting each sample into a graph data object and saving it to disk """
