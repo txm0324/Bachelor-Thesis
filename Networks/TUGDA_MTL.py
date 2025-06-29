@@ -473,8 +473,10 @@ pl.seed_everything(seed)
 
 # Wähle ein Dataset (z.B. Fold 1)
 train_dataset = train_datasets[0]
+train_dataset = train_dataset[:5]
 print("train dataset")
 test_dataset = test_datasets[0]
+test_dataset = test_dataset[:5]
 print("test dataset")
 
 # Labels als numpy arrays oder Tensoren
