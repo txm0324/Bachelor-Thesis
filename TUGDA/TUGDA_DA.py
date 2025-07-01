@@ -303,7 +303,8 @@ class tugda_da(pl.LightningModule):
         # domain discriminator source
         # Source domain as class "0" 
         # A binary cross entropy loss is calculated
-        zeros = torch.zeros(y.size(0), device=self.device)
+        # zeros = torch.zeros(y.size(0), device=self.device)
+        zeros = torch.zeros_like(domain_out_source)
         d_loss_source = self.binary_classification_loss(domain_out_source, zeros)
         
         # domain discriminator target
@@ -311,7 +312,8 @@ class tugda_da(pl.LightningModule):
         # Target domain as class "1"
          # A binary cross entropy loss is calculated
         preds, h, h_hat, domain_out_target = self.forward(unl, alpha)
-        ones = torch.ones(unl.size(0), device=self.device)
+        # ones = torch.ones(unl.size(0), device=self.device)
+        ones = torch.ones_like(domain_out_target) 
         d_loss_target = self.binary_classification_loss(domain_out_target, ones)
         
         # Combination of source and target domain errors 
@@ -460,4 +462,4 @@ df_preds = pd.DataFrame(preds, columns=drug_list)
 df_preds.index = [f"Patient_{i}" for i in range(399)]
 df_genes_pdx = pdx_dataset.iloc[:, :1780].copy()
 df_preds.index = df_genes_pdx.index
-df_preds.to_csv('./results/preds_AUC.csv', index=True)
+df_preds.to_csv('preds_AUC.csv', index=True)

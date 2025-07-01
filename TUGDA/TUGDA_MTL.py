@@ -19,6 +19,7 @@ import torch.nn.functional as F
 # for analysis
 from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error
+from scipy.stats import skew
 
 
 # get list of drugs to be trained and predicted
@@ -128,10 +129,10 @@ class tugda_mtl(pl.LightningModule):
         self.test_dataset = test_dataset
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=8)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4)
     
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=len(self.test_dataset), shuffle=False, num_workers=8)
+        return DataLoader(self.test_dataset, batch_size=len(self.test_dataset), shuffle=False, num_workers=4)
 
     def configure_optimizers(self):
         params = ([p for p in self.parameters()] + [self.log_vars])
@@ -261,9 +262,6 @@ pcorr_list = []
 
 metrics_callback = MetricsCallback()
 
-dgi_matrix = pd.read_csv("./data/global_gene_interaction_matrix.csv", index_col=0).astype(np.float32)
-pathway_matrix = pd.read_csv("./data/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
-
 for k in range(1,4):
     
     X_train = train_data_report['x_k_fold{}'.format(k)].values
@@ -304,32 +302,25 @@ for k in range(1,4):
     error_mtl_nn_results = np.concatenate((np.array(drug_list, ndmin=2).T,
                             np.array(results[0]['test_task_losses_per_class'], ndmin=2).T), axis=1)
 
-
 ## Analysis by MSE and Pearson Correlation 
 
 # MSE
 predictions = results[0]['test_preds']  # [n_samples, n_tasks]
+task_mses = results[0]['test_task_losses_per_class']
 
-task_mses = []
+print("Durchschnittlicher MSE über Tasks:", np.nanmean(task_mses))
+print("Median-MSE über Tasks:", np.nanmedian(task_mses))
 
-for task_idx in range(y_test.shape[1]):
-    y_col = y_test[:, task_idx]
-    pred_col = predictions[:, task_idx]
+error_mtl_nn_results = np.concatenate((np.array(drug_list, ndmin=2).T,
+                            np.array(task_mses, ndmin=2).T), axis=1)
 
-    # Nur gültige Werte verwenden
-    valid_mask = ~np.isnan(y_col) & ~np.isnan(pred_col)
+print(error_mtl_nn_results)
 
-    mse = mean_squared_error(y_col[valid_mask], pred_col[valid_mask])
-    task_mses.append(mse)
+# Save as csv file
+df_errors = pd.DataFrame({'MSE_baseline': task_mses}, index=drug_list)
+print(df_errors.head())
+df_errors.to_csv("task_mses.csv", index_label='Drug')
 
-print("Pro-Task-MSEs:", task_mses)
-print("Durchschnittlicher MSE über Tasks:", np.mean(task_mses))
-
-median_mse = np.median(task_mses)
-print("Median-MSE über Tasks:", median_mse)
-
-# Save as txt file 
-np.savetxt("task_mses.csv", task_mses, delimiter=",", header="MSEs", comments='')
 
 # Pearson Correlation 
 num_tasks = y_test.shape[1]  # Number of Task
@@ -351,23 +342,70 @@ pearson_corrs = np.array(pearson_corrs)
 
 print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
 
-# Save as txt file 
-np.savetxt("task_pearson_corrs.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
+# Save as csv file 
+df_pearson = pd.DataFrame({'corr_baseline': pearson_corrs}, index=drug_list)
+df_pearson.to_csv("task_pearson_corrs.csv", index_label='Drug')
 
-'''
-np.savez_compressed(
-    'result_new_feature_combiner_L2.npz',
-    predictions=predictions,
-    task_mses=task_mses,
-    median_mse=median_mse,
-    pearson_corrs=pearson_corrs
-)
+####################################################################################################
+# Outliers - Analysis
+stats_list = []
 
-data = np.load('results.npz')
+for idx, drug in enumerate(drug_list):
+    values = y_test[:, idx]
+    values_clean = values[~np.isnan(values)]
+    
+    stats = {
+        'Drug': drug,
+        'Tested_Samples': len(values_clean),
+        'Mean': np.mean(values_clean),
+        'Median': np.median(values_clean),
+        'Std': np.std(values_clean),
+        'Variance': np.var(values_clean),
+        'Skewness': skew(values_clean),
+        'CV': np.std(values_clean) / np.mean(values_clean) if np.mean(values_clean) != 0 else np.nan
+    }
+    stats_list.append(stats)
 
-predictions = data['predictions']
-task_mses = data['task_mses']
-median_mse = data['median_mse']
-pearson_corrs = data['pearson_corrs']
+drug_stats_df = pd.DataFrame(stats_list)
+drug_stats_df.to_csv("drug_statistics.csv", index=False)
 
-'''
+### Residual Analysis: 
+
+residuals = predictions - y_test  # [n_samples, n_tasks]
+top_bad_indices = np.argsort(task_mses)[-10:]  # Indices of tasks with the highest MSEs
+
+import matplotlib.pyplot as plt
+import os
+
+# Create folder for results if not available
+os.makedirs("residual_plots", exist_ok=True)
+
+for task_id in top_bad_indices:
+    true_vals = y_test[:, task_id]
+    pred_vals = predictions[:, task_id]
+    
+    mask = ~np.isnan(true_vals) & ~np.isnan(pred_vals)
+    residuals = pred_vals[mask] - true_vals[mask]
+    
+    plt.figure(figsize=(10,4))
+
+    # Residuen vs. wahre Werte
+    plt.subplot(1,2,1)
+    plt.scatter(true_vals[mask], residuals, alpha=0.6)
+    plt.axhline(0, color='red', linestyle='--')
+    plt.title(f"Task {task_id} - Residuen vs Wahre Werte")
+    plt.xlabel("y_true")
+    plt.ylabel("Residual (y_pred - y_true)")
+
+    # Histogramm der Residuen
+    plt.subplot(1,2,2)
+    plt.hist(residuals, bins=30, edgecolor='black', alpha=0.7)
+    plt.title(f"Task {task_id} - Residuen Histogramm")
+    plt.xlabel("Residual")
+    plt.ylabel("Häufigkeit")
+
+    plt.tight_layout()
+    
+    # Speichere das Bild
+    plt.savefig(f"residual_plots/task_{task_id}.png")
+    plt.close() 

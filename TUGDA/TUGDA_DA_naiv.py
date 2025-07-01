@@ -303,7 +303,8 @@ class tugda_da(pl.LightningModule):
         # domain discriminator source
         # Source domain as class "0" 
         # A binary cross entropy loss is calculated
-        zeros = torch.zeros(y.size(0), device=self.device)
+        # zeros = torch.zeros(y.size(0), device=self.device)
+        zeros = torch.zeros_like(domain_out_source)
         d_loss_source = self.binary_classification_loss(domain_out_source, zeros)
         
         # domain discriminator target
@@ -311,7 +312,8 @@ class tugda_da(pl.LightningModule):
         # Target domain as class "1"
          # A binary cross entropy loss is calculated
         preds, h, h_hat, domain_out_target = self.forward(unl, alpha)
-        ones = torch.ones(unl.size(0), device=self.device)
+        # ones = torch.ones(unl.size(0), device=self.device)
+        ones = torch.ones_like(domain_out_target) 
         d_loss_target = self.binary_classification_loss(domain_out_target, ones)
         
         # Combination of source and target domain errors 
@@ -482,11 +484,16 @@ X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_m
 # Combination
 # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix, pathway_matrix], weights=[0.5, 0.5])
 
+# Input dimensions
+net_params['input_dim'] = X_train.shape[1]
+
 # Test data also extracted from another dataset (pdx_dataset)
 X_test = pdx_dataset[gene_list].values
 y_test = pdx_dataset[drugs_pdx].values
 
 X_train_unl = pdx_dataset[gene_list].values
+y_train_unl_dummy = np.ones((X_train_unl.shape[0], y_train.shape[1]))  # Dummy labels
+X_train_unl = extension_with_multiple_task_features(X_train_unl, y_train_unl_dummy, task_feature_matrices=[dgi_matrix], weights=[1])
 
 # Trainer configuration
 trainer = pl.Trainer(
@@ -528,6 +535,6 @@ df_genes_pdx = pdx_dataset.iloc[:, :1780].copy()
 df_preds.index = df_genes_pdx.index
 
 # Name for specific variant
-df_preds.to_csv('./results/preds_AUC_naiv_gene_level.csv', index=True)
-df_preds.to_csv('./results/preds_AUC_naiv_pathway_level.csv', index=True)
-df_preds.to_csv('./results/preds_AUC_naiv_combination.csv', index=True)
+df_preds.to_csv('./preds_AUC_naiv_gene_level.csv', index=True)
+# df_preds.to_csv('./results/preds_AUC_naiv_pathway_level.csv', index=True)
+# df_preds.to_csv('./results/preds_AUC_naiv_combination.csv', index=True)

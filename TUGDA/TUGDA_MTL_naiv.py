@@ -19,6 +19,7 @@ import torch.nn.functional as F
 # for analysis
 from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error
+from scipy.stats import skew
 
 
 # get list of drugs to be trained and predicted
@@ -128,10 +129,10 @@ class tugda_mtl(pl.LightningModule):
         self.test_dataset = test_dataset
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=8)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4)
     
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=len(self.test_dataset), shuffle=False, num_workers=8)
+        return DataLoader(self.test_dataset, batch_size=len(self.test_dataset), shuffle=False, num_workers=4)
 
     def configure_optimizers(self):
         params = ([p for p in self.parameters()] + [self.log_vars])
@@ -374,29 +375,24 @@ for k in range(1,4):
 
 # MSE
 predictions = results[0]['test_preds']  # [n_samples, n_tasks]
+task_mses = results[0]['test_task_losses_per_class']
 
-task_mses = []
+print("Durchschnittlicher MSE über Tasks:", np.nanmean(task_mses))
+print("Median-MSE über Tasks:", np.nanmedian(task_mses))
 
-for task_idx in range(y_test.shape[1]):
-    y_col = y_test[:, task_idx]
-    pred_col = predictions[:, task_idx]
+# Save as csv file 
+df_errors = pd.DataFrame({'MSE_gene': task_mses}, index=drug_list)
+print(df_errors.head())
+df_errors.to_csv("task_mses_gene.csv", index_label='Drug')
 
-    # Nur gültige Werte verwenden
-    valid_mask = ~np.isnan(y_col) & ~np.isnan(pred_col)
+# df_errors = pd.DataFrame({'MSE_pathway': task_mses}, index=drug_list)
+# print(df_errors.head())
+# df_errors.to_csv("task_mses_pathway.csv", index_label='Drug')
 
-    mse = mean_squared_error(y_col[valid_mask], pred_col[valid_mask])
-    task_mses.append(mse)
+# df_errors = pd.DataFrame({'MSE_combination': task_mses}, index=drug_list)
+# print(df_errors.head())
+# df_errors.to_csv("task_mses_combination.csv", index_label='Drug')
 
-print("Pro-Task-MSEs:", task_mses)
-print("Durchschnittlicher MSE über Tasks:", np.mean(task_mses))
-
-median_mse = np.median(task_mses)
-print("Median-MSE über Tasks:", median_mse)
-
-# Save as txt file 
-np.savetxt("task_mses_gene.csv", task_mses, delimiter=",", header="MSEs", comments='')
-# np.savetxt("task_mses_pathway.csv", task_mses, delimiter=",", header="MSEs", comments='')
-# np.savetxt("task_mses_combination.csv", task_mses, delimiter=",", header="MSEs", comments='')
 
 # Pearson Correlation 
 num_tasks = y_test.shape[1]  # Number of Task
@@ -418,10 +414,15 @@ pearson_corrs = np.array(pearson_corrs)
 
 print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
 
-# Save as txt file 
-np.savetxt("task_pearson_corrs_gene.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
-# np.savetxt("task_pearson_corrs_pathway.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
-# np.savetxt("task_pearson_corrs_combination.csv", pearson_corrs, delimiter=",", header="MSEs", comments='')
+# Save as csv file 
+df_pearson = pd.DataFrame({'corr_gene': pearson_corrs}, index=drug_list)
+df_pearson.to_csv("task_pearson_corrs_gene.csv", index_label='Drug')
+
+# df_pearson = pd.DataFrame({'corr_pathway': pearson_corrs}, index=drug_list)
+# df_pearson.to_csv("task_pearson_corrs_pathway.csv", index_label='Drug')
+
+# df_pearson = pd.DataFrame({'corr_combination': pearson_corrs}, index=drug_list)
+# df_pearson.to_csv("task_pearson_corrs_combination.csv", index_label='Drug')
 
 '''
 np.savez_compressed(

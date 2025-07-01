@@ -105,6 +105,8 @@ class tugda_mtl_gnn(pl.LightningModule):
         self.y_train = y_train
         self.test_data = test_dataset
         self.y_test = y_test
+
+        self.test_step_outputs = []  # To store test step outputs
         
         # GNN Encoder (your existing implementation)
         self.gnn_encoder = GNNEncoder(
@@ -155,17 +157,6 @@ class tugda_mtl_gnn(pl.LightningModule):
 
         # Stack and average embeddings (or concatenate if you want task-specific features)
         x = torch.stack(embeddings).mean(dim=0).squeeze(0)  # shape: [gnn_output_dim]
-
-        # BATCH_SIZE = 20
-        # embeddings = []
-        # for i in range(0, len(drug_graphs), BATCH_SIZE):
-        #     mini_batch = Batch.from_data_list(drug_graphs[i:i + BATCH_SIZE]).to(self.device)
-        #     mini_emb = self.gnn_encoder(mini_batch)  # [mini_batch_size, gnn_output_dim]
-        #     embeddings.append(mini_emb.cpu())
-
-        # graph_embs = torch.cat(embeddings, dim=0).to(self.device)
-        # x = graph_embs.mean(dim=0)
-
 
         # Project to hidden space
         x = self.projection(x)  # shape: [hidden_units_1]
@@ -338,6 +329,12 @@ class tugda_mtl_gnn(pl.LightningModule):
 
         return total_loss, task_loss
     
+    def on_test_epoch_end(self):
+        all_task_losses = torch.stack(self.test_step_outputs)  # shape [num_batches, num_tasks]
+        mean_task_losses = torch.nanmean(all_task_losses, dim=0)  # Mittel pro Task
+        self.test_task_losses_per_class = mean_task_losses.numpy()  # Speicher für später
+        self.test_step_outputs.clear()  # Leere Zwischenspeicher
+    
     def training_step(self, batch, batch_idx):
         # batch is a PyG Data object, no need to unpack
         loss, task_loss = self.forward_pass(batch, batch_idx)
@@ -349,8 +346,8 @@ class tugda_mtl_gnn(pl.LightningModule):
         labels = labels.squeeze(1)
 
         # Dropout einschalten (train mode) bei relevanten Modulen
-        self.feature_extractor[1].train()
-        self.latent_basis[1].train()
+        self.projection[1].train()  # Dropout-Layer in projection
+        self.latent_basis[1].train()  # Dropout-Layer in latent_basis
 
         preds_simulation = []
 
@@ -375,11 +372,14 @@ class tugda_mtl_gnn(pl.LightningModule):
         loss, task_losses = self.mse_ignore_nan_test(preds_mean, labels)
 
         # Dropout ausschalten (eval mode)
-        self.feature_extractor[1].eval()
+        self.projection[1].eval()
         self.latent_basis[1].eval()
 
         self.log('test_loss', loss)
         print(f"Test loss batch {batch_idx}: {loss.item()}")
+
+        # Speichere task_losses als Attribut
+        self.test_step_outputs.append(task_losses.detach().cpu())
 
         return {
             'test_loss': loss,
@@ -397,7 +397,7 @@ net_params_test = {
     'gamma': 0.0001,
     'num_tasks': 200,
     'passes': 5,
-    'epochs': 1,
+    'epochs': 2,
     'feature_size': 3,
     'embedding_size': 64,
     'gnn_output_dim': 128,
@@ -473,10 +473,8 @@ pl.seed_everything(seed)
 
 # Wähle ein Dataset (z.B. Fold 1)
 train_dataset = train_datasets[0]
-train_dataset = train_dataset[:5]
 print("train dataset")
 test_dataset = test_datasets[0]
-test_dataset = test_dataset[:5]
 print("test dataset")
 
 # Labels als numpy arrays oder Tensoren
@@ -500,7 +498,7 @@ metrics_callback = MetricsCallback()
 trainer = pl.Trainer(
     max_epochs=net_params_test['epochs'],
     accelerator='gpu' if torch.cuda.is_available() else 'cpu',
-    devices=1,  # Oder 2, wenn du Multi-GPU brauchst
+    devices=2,  # Oder 2, wenn du Multi-GPU brauchst
     callbacks=[metrics_callback],
     log_every_n_steps=5,
     deterministic=True
@@ -509,16 +507,14 @@ trainer = pl.Trainer(
 trainer.fit(model)
 results = trainer.test(model)
 
-error_per_task = results[0]['test_task_losses_per_class']
+print("Test Results:", results)
+
+# error_per_task = results[0]['test_task_losses_per_class']
+error_per_task = model.test_task_losses_per_class
 error_mtl_nn_results = np.concatenate((
     np.array(drug_list, ndmin=2).T,
     np.array(error_per_task, ndmin=2).T
 ), axis=1)
-
-print("Error per task:")
-print(error_mtl_nn_results)
-
-
 
 # #best set of hyperparamters found on this dataset setting (GDSC)
 # net_params = {
