@@ -316,7 +316,14 @@ pcorr_list = []
 
 metrics_callback = MetricsCallback()
 
-dgi_matrix = pd.read_csv("./data/global_gene_interaction_matrix.csv", index_col=0).astype(np.float32)
+# Extension 
+dgi_matrix_direct = pd.read_csv("./data/Targets/direct/direct_targets.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_02 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.2.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_03 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.3.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_04 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.4.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_05 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.5.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_06 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.6.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_07 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.7.csv", index_col=0).astype(np.float32)
 pathway_matrix = pd.read_csv("./data/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
 
 for k in range(1,4):
@@ -329,8 +336,8 @@ for k in range(1,4):
 
     # Extension 
     # Gene-Interaction:
-    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix], weights=[1])
-    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix], weights=[1])
+    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
+    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
     # Pathway-Interaction:
     # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix], weights=[1])
     # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[pathway_matrix], weights=[1])
@@ -383,7 +390,7 @@ print("Median-MSE über Tasks:", np.nanmedian(task_mses))
 # Save as csv file 
 df_errors = pd.DataFrame({'MSE_gene': task_mses}, index=drug_list)
 print(df_errors.head())
-df_errors.to_csv("task_mses_gene.csv", index_label='Drug')
+df_errors.to_csv("task_mses_indirect_07.csv", index_label='Drug')
 
 # df_errors = pd.DataFrame({'MSE_pathway': task_mses}, index=drug_list)
 # print(df_errors.head())
@@ -416,7 +423,7 @@ print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
 
 # Save as csv file 
 df_pearson = pd.DataFrame({'corr_gene': pearson_corrs}, index=drug_list)
-df_pearson.to_csv("task_pearson_corrs_gene.csv", index_label='Drug')
+df_pearson.to_csv("task_pearson_corrs_indirect_07.csv", index_label='Drug')
 
 # df_pearson = pd.DataFrame({'corr_pathway': pearson_corrs}, index=drug_list)
 # df_pearson.to_csv("task_pearson_corrs_pathway.csv", index_label='Drug')

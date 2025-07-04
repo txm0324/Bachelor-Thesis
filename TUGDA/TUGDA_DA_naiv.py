@@ -474,13 +474,23 @@ X_train = gdsc_dataset[gene_list].values
 y_train = gdsc_dataset[drug_list].values
 
 # Extension 
-dgi_matrix = pd.read_csv("./data/global_gene_interaction_matrix.csv", index_col=0).astype(np.float32)
+dgi_matrix_direct = pd.read_csv("./data/Targets/direct/direct_targets.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_02 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.2.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_03 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.3.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_04 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.4.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_05 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.5.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_06 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.6.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_07 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.7.csv", index_col=0).astype(np.float32)
 pathway_matrix = pd.read_csv("./data/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
+pathway_matrix_count = pd.read_csv("./data/gene_count.csv", index_col=0).astype(np.float32)
+pathway_matrix_frequency = pd.read_csv("./data/gene_frequency.csv", index_col=0).astype(np.float32)
+pathway_matrix_weights = pd.read_csv("./data/pathway_weights.csv", index_col=0).astype(np.float32)
+pathway_matrix_enrichment = pd.read_csv("./data/enrichment.csv", index_col=0).astype(np.float32)
 
 # Gene-Interaction:
 # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix], weights=[1])
 # Pathway-Interaction:
-X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix], weights=[1])
+X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix_enrichment], weights=[1])
 # Combination
 # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix, pathway_matrix], weights=[0.5, 0.5])
 
@@ -493,7 +503,7 @@ y_test = pdx_dataset[drugs_pdx].values
 
 X_train_unl = pdx_dataset[gene_list].values
 y_train_unl_dummy = np.zeros((X_train_unl.shape[0], y_train.shape[1]))  # Dummy labels
-X_train_unl = extension_with_multiple_task_features(X_train_unl, y_train_unl_dummy, task_feature_matrices=[pathway_matrix], weights=[1])
+X_train_unl = extension_with_multiple_task_features(X_train_unl, y_train_unl_dummy, task_feature_matrices=[pathway_matrix_enrichment], weights=[1])
 
 # Trainer configuration
 trainer = pl.Trainer(
@@ -535,6 +545,6 @@ df_genes_pdx = pdx_dataset.iloc[:, :1780].copy()
 df_preds.index = df_genes_pdx.index
 
 # Name for specific variant
-# df_preds.to_csv('./preds_AUC_naiv_gene_level.csv', index=True)
-df_preds.to_csv('./preds_AUC_naiv_pathway_level.csv', index=True)
+df_preds.to_csv('./preds_AUC_pathway_enrichment.csv', index=True)
+# df_preds.to_csv('./preds_AUC_naiv_pathway_level.csv', index=True)
 # df_preds.to_csv('./results/preds_AUC_naiv_combination.csv', index=True)
