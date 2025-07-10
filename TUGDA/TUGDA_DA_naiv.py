@@ -398,30 +398,32 @@ net_params = {
 
 def extension_with_multiple_task_features(X, y, task_feature_matrices, weights=None):
     """
-    Erweiterung der Feature-Matrix X mit DGI-Vektoren auf Basis von Labels in y.
+    Extension of the feature matrix X with DGI vectors based on labels in y.
 
     Inputs:
-    - X: np.array [N_samples (Zellinien) x n_genes], Genexpression
+    - X: np.array [N_samples (cell lines) x n_genes], gene expression
 
-    X_train: (536, 1780) = [N_samples (Zellinien von 2 Folds) x n_genes]
-    X_test: (269, 1780) = [N_samples (Zellinien von 1 Fold) x n_genes]
+    X_train: (536, 1780) = [N_samples (cell lines from 2 folds) x n_genes]
+    X_test: (269, 1780) = [N_samples (cell lines from 1 fold) x n_genes]
 
-    - y: np.array [N_samples (Zellinien) x n_tasks (drugs)], Arzneimittelantworten (z. B. IC50, AUC)
+    - y: np.array [N_samples (cell lines) x n_tasks (drugs)], drug responses (e.g. IC50, AUC)
 
-    Y_train: (536, 200) = [N_samples (Zellinien von 2 Folds) x n_tasks (200 drugs)]
-    Y_test: (269, 200) = [N_samples (Zellinien von 1 Fold) x n_tasks (200 drugs)]
+    Y_train: (536, 200) = [N_samples (cell lines from 2 folds) x n_tasks (200 drugs)]
+    Y_test: (269, 200) = [N_samples (cell lines from 1 fold) x n_tasks (200 drugs)]
 
-    - dgi_matrix: torch.Tensor [n_tasks x n_genes], Drug-Gene-Interaktionen (0/1 oder normiert)
+    - dgi_matrix: torch.tensor [n_tasks x n_genes], drug-gene interactions (0/1 or normalized)
 
     dgi_matrix [n_tasks (200 drugs) x n_genes (1780)]
     
     Output:
     - X_extension: np.array [N_samples x (n_genes + n_genes)]
 
-    X_train_extension: (536, 3560) = [N_samples (Zellinien von 2 Folds) + 2* n_genes]
-    X_test_extension: (269, 3560) = [N_samples (Zellinien von 1 Folds) + 2* n_genes]
+    X_train_extension: (536, 3560) = [N_samples (cell lines from 2 folds) + 2* n_genes]
+    X_test_extension: (269, 3560) = [N_samples (cell lines from 1 fold) + 2* n_genes]
 
     """
+
+    # If no weights are specified, each matrix is given the same weight.
     if weights is None:
         n_weights = len(task_feature_matrices)
         weights = [1.0 / n_weights for _ in range(n_weights)]
@@ -430,22 +432,29 @@ def extension_with_multiple_task_features(X, y, task_feature_matrices, weights=N
 
     X_ext = []
 
+    # Iterate over each sample in X
     for i in range(X.shape[0]):
+        # Find all task indices (drugs) for which the sample has a valid (non-NaN) label
         task_indices = np.where(~np.isnan(y[i]))[0]
+        
+        # Raise an error if the sample has no valid label
         if len(task_indices) == 0:
             raise ValueError(f"Sample {i} does not have a valid label assignment.")
+        
+        # Select the first valid task index for this sample
         task_idx = task_indices[0]
 
-        # Sammle alle Feature-Vektoren & gewichte diese für diesen Task 
+        # Retrieve and weight all feature vectors for the selected task from each task-specific matrix
         feature_vecs = [
             weight * matrix.iloc[task_idx].values
             for weight, matrix in zip(weights, task_feature_matrices)
         ]
 
-        # Kombiniere mit ursprünglichem X
+        # Concatenate the original feature vector with the weighted task-specific vectors
         x_aug = np.concatenate([X[i]] + feature_vecs)
         X_ext.append(x_aug)
 
+    # Stack all extended feature vectors into a single matrix
     return np.stack(X_ext)
 
 
@@ -474,6 +483,8 @@ X_train = gdsc_dataset[gene_list].values
 y_train = gdsc_dataset[drug_list].values
 
 # Extension 
+
+# 1. Drug-Gene-Interaction
 dgi_matrix_direct = pd.read_csv("./data/Targets/direct/direct_targets.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_02 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.2.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_03 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.3.csv", index_col=0).astype(np.float32)
@@ -481,13 +492,16 @@ dgi_matrix_indirect_04 = pd.read_csv("./data/Targets/indirect/indirect_targets_0
 dgi_matrix_indirect_05 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.5.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_06 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.6.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_07 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.7.csv", index_col=0).astype(np.float32)
+
+# 2. Drug-Pathway-Interaction
 pathway_matrix = pd.read_csv("./data/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
-pathway_matrix_count = pd.read_csv("./data/gene_count.csv", index_col=0).astype(np.float32)
+pathway_matrix_count = pd.read_csv("./data/gene_count_zscore.csv", index_col=0).astype(np.float32)
 pathway_matrix_frequency = pd.read_csv("./data/gene_frequency.csv", index_col=0).astype(np.float32)
-pathway_matrix_weights = pd.read_csv("./data/pathway_weights.csv", index_col=0).astype(np.float32)
-pathway_matrix_enrichment = pd.read_csv("./data/enrichment.csv", index_col=0).astype(np.float32)
+pathway_matrix_weights = pd.read_csv("./data/pathway_weights_zscore.csv", index_col=0).astype(np.float32)
+pathway_matrix_enrichment = pd.read_csv("./data/enrichment_zscore.csv", index_col=0).astype(np.float32)
 
 # Gene-Interaction:
+
 # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix], weights=[1])
 # Pathway-Interaction:
 X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix_enrichment], weights=[1])
@@ -545,6 +559,6 @@ df_genes_pdx = pdx_dataset.iloc[:, :1780].copy()
 df_preds.index = df_genes_pdx.index
 
 # Name for specific variant
-df_preds.to_csv('./preds_AUC_pathway_enrichment.csv', index=True)
+df_preds.to_csv('./preds_AUC_pathway_enrichment_zscore.csv', index=True)
 # df_preds.to_csv('./preds_AUC_naiv_pathway_level.csv', index=True)
 # df_preds.to_csv('./results/preds_AUC_naiv_combination.csv', index=True)

@@ -245,30 +245,32 @@ class tugda_mtl(pl.LightningModule):
 
 def extension_with_multiple_task_features(X, y, task_feature_matrices, weights=None):
     """
-    Erweiterung der Feature-Matrix X mit DGI-Vektoren auf Basis von Labels in y.
+    Extension of the feature matrix X with DGI vectors based on labels in y.
 
     Inputs:
-    - X: np.array [N_samples (Zellinien) x n_genes], Genexpression
+    - X: np.array [N_samples (cell lines) x n_genes], gene expression
 
-    X_train: (536, 1780) = [N_samples (Zellinien von 2 Folds) x n_genes]
-    X_test: (269, 1780) = [N_samples (Zellinien von 1 Fold) x n_genes]
+    X_train: (536, 1780) = [N_samples (cell lines from 2 folds) x n_genes]
+    X_test: (269, 1780) = [N_samples (cell lines from 1 fold) x n_genes]
 
-    - y: np.array [N_samples (Zellinien) x n_tasks (drugs)], Arzneimittelantworten (z. B. IC50, AUC)
+    - y: np.array [N_samples (cell lines) x n_tasks (drugs)], drug responses (e.g. IC50, AUC)
 
-    Y_train: (536, 200) = [N_samples (Zellinien von 2 Folds) x n_tasks (200 drugs)]
-    Y_test: (269, 200) = [N_samples (Zellinien von 1 Fold) x n_tasks (200 drugs)]
+    Y_train: (536, 200) = [N_samples (cell lines from 2 folds) x n_tasks (200 drugs)]
+    Y_test: (269, 200) = [N_samples (cell lines from 1 fold) x n_tasks (200 drugs)]
 
-    - dgi_matrix: torch.Tensor [n_tasks x n_genes], Drug-Gene-Interaktionen (0/1 oder normiert)
+    - dgi_matrix: torch.tensor [n_tasks x n_genes], drug-gene interactions (0/1 or normalized)
 
     dgi_matrix [n_tasks (200 drugs) x n_genes (1780)]
     
     Output:
     - X_extension: np.array [N_samples x (n_genes + n_genes)]
 
-    X_train_extension: (536, 3560) = [N_samples (Zellinien von 2 Folds) + 2* n_genes]
-    X_test_extension: (269, 3560) = [N_samples (Zellinien von 1 Folds) + 2* n_genes]
+    X_train_extension: (536, 3560) = [N_samples (cell lines from 2 folds) + 2* n_genes]
+    X_test_extension: (269, 3560) = [N_samples (cell lines from 1 fold) + 2* n_genes]
 
     """
+
+    # If no weights are specified, each matrix is given the same weight.
     if weights is None:
         n_weights = len(task_feature_matrices)
         weights = [1.0 / n_weights for _ in range(n_weights)]
@@ -277,23 +279,31 @@ def extension_with_multiple_task_features(X, y, task_feature_matrices, weights=N
 
     X_ext = []
 
+    # Iterate over each sample in X
     for i in range(X.shape[0]):
+        # Find all task indices (drugs) for which the sample has a valid (non-NaN) label
         task_indices = np.where(~np.isnan(y[i]))[0]
+        
+        # Raise an error if the sample has no valid label
         if len(task_indices) == 0:
             raise ValueError(f"Sample {i} does not have a valid label assignment.")
+        
+        # Select the first valid task index for this sample
         task_idx = task_indices[0]
 
-        # Sammle alle Feature-Vektoren & gewichte diese für diesen Task 
+        # Retrieve and weight all feature vectors for the selected task from each task-specific matrix
         feature_vecs = [
             weight * matrix.iloc[task_idx].values
             for weight, matrix in zip(weights, task_feature_matrices)
         ]
 
-        # Kombiniere mit ursprünglichem X
+        # Concatenate the original feature vector with the weighted task-specific vectors
         x_aug = np.concatenate([X[i]] + feature_vecs)
         X_ext.append(x_aug)
 
+    # Stack all extended feature vectors into a single matrix
     return np.stack(X_ext)
+
 
 # best set of hyperparamters found on this dataset setting (GDSC)
 net_params = {
@@ -317,6 +327,8 @@ pcorr_list = []
 metrics_callback = MetricsCallback()
 
 # Extension 
+
+# 1. Drug-Gene-Interaction
 dgi_matrix_direct = pd.read_csv("./data/Targets/direct/direct_targets.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_02 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.2.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_03 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.3.csv", index_col=0).astype(np.float32)
@@ -324,7 +336,14 @@ dgi_matrix_indirect_04 = pd.read_csv("./data/Targets/indirect/indirect_targets_0
 dgi_matrix_indirect_05 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.5.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_06 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.6.csv", index_col=0).astype(np.float32)
 dgi_matrix_indirect_07 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.7.csv", index_col=0).astype(np.float32)
+
+# 2. Drug-Pathway-Interaction
 pathway_matrix = pd.read_csv("./data/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
+pathway_matrix_count = pd.read_csv("./data/gene_count_zscore.csv", index_col=0).astype(np.float32)
+pathway_matrix_frequency = pd.read_csv("./data/gene_frequency.csv", index_col=0).astype(np.float32)
+pathway_matrix_weights = pd.read_csv("./data/pathway_weights_zscore.csv", index_col=0).astype(np.float32)
+pathway_matrix_enrichment = pd.read_csv("./data/enrichment_zscore.csv", index_col=0).astype(np.float32)
+
 
 for k in range(1,4):
     
@@ -336,14 +355,14 @@ for k in range(1,4):
 
     # Extension 
     # Gene-Interaction:
-    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
-    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
+    # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
+    # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
     # Pathway-Interaction:
-    # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix], weights=[1])
-    # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[pathway_matrix], weights=[1])
+    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix_enrichment], weights=[1])
+    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[pathway_matrix_enrichment], weights=[1])
     # Combination
-    # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix, pathway_matrix], weights=[0.5,0.5])
-    # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix, pathway_matrix], weights=[0.5,0.5])
+    # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix_indirect_05, pathway_matrix], weights=[0.5,0.5])
+    # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix_indirect_05, pathway_matrix], weights=[0.5,0.5])
 
     # Input dimensions
     net_params['input_dim'] = X_train.shape[1]
@@ -390,16 +409,7 @@ print("Median-MSE über Tasks:", np.nanmedian(task_mses))
 # Save as csv file 
 df_errors = pd.DataFrame({'MSE_gene': task_mses}, index=drug_list)
 print(df_errors.head())
-df_errors.to_csv("task_mses_indirect_07.csv", index_label='Drug')
-
-# df_errors = pd.DataFrame({'MSE_pathway': task_mses}, index=drug_list)
-# print(df_errors.head())
-# df_errors.to_csv("task_mses_pathway.csv", index_label='Drug')
-
-# df_errors = pd.DataFrame({'MSE_combination': task_mses}, index=drug_list)
-# print(df_errors.head())
-# df_errors.to_csv("task_mses_combination.csv", index_label='Drug')
-
+df_errors.to_csv("task_mses_pathway_enrichment_zscore.csv", index_label='Drug')
 
 # Pearson Correlation 
 num_tasks = y_test.shape[1]  # Number of Task
@@ -423,28 +433,4 @@ print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
 
 # Save as csv file 
 df_pearson = pd.DataFrame({'corr_gene': pearson_corrs}, index=drug_list)
-df_pearson.to_csv("task_pearson_corrs_indirect_07.csv", index_label='Drug')
-
-# df_pearson = pd.DataFrame({'corr_pathway': pearson_corrs}, index=drug_list)
-# df_pearson.to_csv("task_pearson_corrs_pathway.csv", index_label='Drug')
-
-# df_pearson = pd.DataFrame({'corr_combination': pearson_corrs}, index=drug_list)
-# df_pearson.to_csv("task_pearson_corrs_combination.csv", index_label='Drug')
-
-'''
-np.savez_compressed(
-    'result_new_feature_combiner_L2.npz',
-    predictions=predictions,
-    task_mses=task_mses,
-    median_mse=median_mse,
-    pearson_corrs=pearson_corrs
-)
-
-data = np.load('results.npz')
-
-predictions = data['predictions']
-task_mses = data['task_mses']
-median_mse = data['median_mse']
-pearson_corrs = data['pearson_corrs']
-
-'''
+df_pearson.to_csv("task_pearson_pathway_enrichment_zscore.csv", index_label='Drug')

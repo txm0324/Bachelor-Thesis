@@ -5,7 +5,6 @@ import gseapy as gp # for retrieving pathway information
 
 # Create with the GNN_Class a train and test sample with 3-Cross Validation
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -215,30 +214,3 @@ if __name__ == "__main__":
     print("\n- Label (IC50-Werte für alle Drugs):") # log_IC50 value for each drug-cell line combination
     print(ic50_tensor)  # shape: [num_tasks]
     print("Shape:", ic50_tensor.shape)
-
-
-    ''' Single
-    data = train_dataset[0] # graph-base representations of drug-cell line pairs (200 * 1780)
-
-    print("- Drug Name:", data.drug)
-    print("- Cell Line Name:", data.cell_line)
-
-    print("\n- Edge Index (COO format):") # tensor([a,b], [c,d]): node a is conntected to node b and node c is conntected to node d
-    print(data.edge_index.t())
-    print(data.edge_index.t().shape) # Tensor of shape [num_edges, 2]
-
-    print("\n- Node Features (x):") # Gene expression values of gene_x with Cell line and is_gene, is_pathway
-    print(data.x)
-    print(data.x.shape) # Tensor of shape [num_nodes, num_node_features]
-
-    nodes = data.nodes
-
-    for i in range(10):
-        node_name = nodes[i]
-        feature_value = data.x[i][0].item()  # Just take the first feature (gene expression)
-        print(f"- Index {i}: {node_name} → Feature: {feature_value:.4f}")
-
-    print("\n- Label (y):") # log_IC50 value for the drug-cell line combination
-    print(data.y)
-    print(data.y.shape) # Tensor of shape [1]
-    ''' 
