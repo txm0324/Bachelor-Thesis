@@ -529,6 +529,28 @@ percent_genes = len(genes_common) / len(genes_TUGDA) * 100 if genes_TUGDA else 0
 print(f"   - Genes: {len(genes_common)} of {len(genes_TUGDA)} matched ({percent_genes:.2f}%)") # 1636 of 1780 common genes (91,91%)
 print("="*45 )
 
+# 5) Overlap per database (individual source comparison with TUGDA)
+print("5.) Overlap per Database with TUGDA Input\n")
+
+for name, df in dfs.items():
+    # Extract drugs and genes from current database
+    drugs_db = set(df['drug_name'].dropna().unique())
+    genes_db = set(df['gene_name'].dropna().unique())
+    
+    # Compare with TUGDA lists
+    common_drugs = drugs_db & drugs_TUGDA
+    common_genes = genes_db & genes_TUGDA
+    
+    # Calculate percentages
+    perc_drugs = len(common_drugs) / len(drugs_TUGDA) * 100 if drugs_TUGDA else 0
+    perc_genes = len(common_genes) / len(genes_TUGDA) * 100 if genes_TUGDA else 0
+    
+    print(f"   [{name}]")
+    print(f"     - Drugs: {len(common_drugs)} of {len(drugs_TUGDA)} ({perc_drugs:.2f}%)")
+    print(f"     - Genes: {len(common_genes)} of {len(genes_TUGDA)} ({perc_genes:.2f}%)")
+
+print("="*45)
+
 print("Final Dataframe:")
 print(final_all_DGI.head())
 print("="*45 )
