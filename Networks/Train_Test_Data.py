@@ -1,35 +1,9 @@
 from gnn_class import DrugNetworkDataset # for import gnn_class of the Script gnn_class.py
 from sklearn.model_selection import KFold # for the Cross Validation
 import pandas as pd # read Dataframe 
-import gseapy as gp # for retrieving pathway information
 
 # Create with the GNN_Class a train and test sample with 3-Cross Validation
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import GATConv, TopKPooling
-from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
-from torch_geometric.data import DataLoader
-from torch.utils.data import TensorDataset
-import random
-import numpy as np
-
-#call pytorch lightning functions
-import pytorch_lightning as pl
-from pytorch_lightning import Callback
-from pytorch_lightning import Trainer, seed_everything
-
-from torch_geometric.data import DataLoader as GeoDataLoader
-
-from tqdm import tqdm
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import GATConv, TopKPooling, global_max_pool as gmp, global_mean_pool as gap
-
-from torch_geometric.data import Batch
 
 # -----------------------------------
 # Step 0: Load and Prepare DataFrames
@@ -130,53 +104,6 @@ for fold, (train_idx, test_idx) in enumerate(kf.split(all_cell_lines), 1):
     # Save as lists
     train_datasets.append(train_dataset)
     test_datasets.append(test_dataset)
-
-class GNNEncoder(nn.Module):
-    def __init__(self, feature_size=3, embedding_size=512, output_dim=256):
-        super(GNNEncoder, self).__init__()
-
-        # Block 1
-        self.conv1 = GATConv(feature_size, embedding_size, heads=3, dropout=0.6)
-        self.head_transform1 = nn.Linear(embedding_size * 3, embedding_size)
-        self.bn1 = nn.BatchNorm1d(embedding_size)
-        self.pool1 = TopKPooling(embedding_size, ratio=0.8)
-
-        # Block 2
-        self.conv2 = GATConv(embedding_size, embedding_size, heads=3, dropout=0.6)
-        self.head_transform2 = nn.Linear(embedding_size * 3, embedding_size)
-        self.bn2 = nn.BatchNorm1d(embedding_size)
-        self.pool2 = TopKPooling(embedding_size, ratio=0.5)
-
-        # Final projection
-        self.linear1 = nn.Linear(embedding_size * 2, 512)
-        self.linear2 = nn.Linear(512, output_dim)
-
-    def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-
-        # Block 1
-        x = self.conv1(x, edge_index)
-        x = F.relu(self.head_transform1(x))
-        x = self.bn1(x)
-        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)
-        x1 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-
-        # Block 2
-        x = self.conv2(x, edge_index)
-        x = F.relu(self.head_transform2(x))
-        x = self.bn2(x)
-        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
-        x2 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-
-        # Combine
-        x = x1 + x2
-
-        # Final layers
-        x = self.linear1(x).relu()
-        x = F.dropout(x, p=0.5, training=self.training)
-        graph_embedding = self.linear2(x)
-
-        return graph_embedding
 
 # ----------------------------------
 # Step 2: Quick Ckeck with results

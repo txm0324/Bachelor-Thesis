@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed # Import modules
 from chembl_webresource_client.new_client import new_client  # type: ignore
 import time # Time module for measuring execution duration
 from tqdm import tqdm # tqdm for progress bars in loops and iterations
+import os # for interacting with operating
+import zipfile # to work with ZIP files
 
 # Create a Dataframe of Drug-Gene-Interactions
 
@@ -15,8 +17,7 @@ from tqdm import tqdm # tqdm for progress bars in loops and iterations
 # -----------------------------------
 
 # Load the full GDSC dataset (FPKM + AUC values for all drugs)
-gdsc_dataset = pd.read_csv('/sybig/home/tmu/TUGDA/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
-# gdsc_dataset = pd.read_csv('/Users/tm03/Desktop/TUGDA_1/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
+gdsc_dataset = pd.read_csv('data/TUGDA/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
 
 # Extract gene and drug columns:
 # - First 1780 columns correspond to gene expression data
@@ -394,14 +395,14 @@ print("- BioGrid: Done")
 
 # Download clinicalAnnotations.zip (https://www.pharmgkb.org/downloads)
 
-'''
-If this file an zip_file run: 
+
+# If this file an zip_file run: 
 # Download relationship file from zip file
-with ZipFile("raw_data/relationships.zip") as file: 
+with zipfile.ZipFile("raw_data/relationships.zip") as file: 
     file.extract("relationships.tsv", path="raw_data")
 # Delete zip file
 os.remove("raw_data/relationships.zip")
-''' 
+ 
 
 # Load file and filter relevant columns
 Pharma_relationships = pd.read_csv("raw_data/relationships.tsv", sep='\t') 
@@ -540,8 +541,6 @@ for name, df in dfs.items():
     # Compare with TUGDA lists
     common_drugs = drugs_db & drugs_TUGDA
     common_genes = genes_db & genes_TUGDA
-    
-    # Calculate percentages
     perc_drugs = len(common_drugs) / len(drugs_TUGDA) * 100 if drugs_TUGDA else 0
     perc_genes = len(common_genes) / len(genes_TUGDA) * 100 if genes_TUGDA else 0
     
@@ -554,3 +553,5 @@ print("="*45)
 print("Final Dataframe:")
 print(final_all_DGI.head())
 print("="*45 )
+
+final_all_DGI.to_csv('data/DGI_Final.csv')

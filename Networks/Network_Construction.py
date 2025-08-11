@@ -5,6 +5,7 @@ import gseapy as gp # to get the pathway levels
 
 import os # for Directory
 import numpy as np # for matrix
+from scipy.sparse import csr_matrix # to save large matrices with many zeros
 
 ################################
 # Create Drug-Specific Network #
@@ -42,8 +43,7 @@ ppi_df = ppi_df[ppi_df['combined_score'] > 500]
 # ------------------
 
 # cell-line and drug sample dataset of TUGDA (GDSC)
-# gdsc_dataset = pd.read_csv('/Users/tm03/Desktop/TUGDA_1/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
-gdsc_dataset = pd.read_csv('/sybig/home/tmu/TUGDA/data/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
+gdsc_dataset = pd.read_csv('./data//TUGDA/GDSCDA_fpkm_AUC_all_drugs.zip', index_col=0)
 gene_list = gdsc_dataset.columns[0:1780]
 drug_list = gdsc_dataset.columns[1780:]
 
@@ -163,6 +163,7 @@ print("Final Dataframe 'lv2_edges_df'")
 print(lvl2_edges_df.head())
 
 print(f"- Pathway edges added: {lvl2_edges_df.shape[0]:,}")
+lvl2_edges_df.to_csv("./data/lv2_edges.csv")
 
 final_network = pd.concat([
     lvl1_edges_df,
@@ -334,7 +335,6 @@ print(f"- Contains {len(drug_pathway_binary.columns)} pathways")
 
 # G = nx.Graph()
 
-# # Füge Kanten hinzu
 # for _, row in drug_network.head(100).iterrows():
 #     source = row['source']
 #     target = row['target']

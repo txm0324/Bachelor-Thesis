@@ -263,7 +263,7 @@ def extension_with_multiple_task_features(X, y, task_feature_matrices, weights=N
     dgi_matrix [n_tasks (200 drugs) x n_genes (1780)]
     
     Output:
-    - X_extension: np.array [N_samples x (n_genes + n_genes)]
+    - X_extension: np.array [N_samples x (n_genes + k * n_genes)], k = len(task_feature_matrices)
 
     X_train_extension: (536, 3560) = [N_samples (cell lines from 2 folds) + 2* n_genes]
     X_test_extension: (269, 3560) = [N_samples (cell lines from 1 fold) + 2* n_genes]
@@ -342,8 +342,9 @@ pathway_matrix = pd.read_csv("./data/drug_pathway_binary_matrix.csv", index_col=
 pathway_matrix_count = pd.read_csv("./data/gene_count_zscore.csv", index_col=0).astype(np.float32)
 pathway_matrix_frequency = pd.read_csv("./data/gene_frequency.csv", index_col=0).astype(np.float32)
 pathway_matrix_weights = pd.read_csv("./data/pathway_weights_zscore.csv", index_col=0).astype(np.float32)
-pathway_matrix_enrichment = pd.read_csv("./data/enrichment_zscore.csv", index_col=0).astype(np.float32)
 
+all_task_mses = []
+all_pearson_corrs = []
 
 for k in range(1,4):
     
@@ -358,8 +359,8 @@ for k in range(1,4):
     # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
     # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix_indirect_07], weights=[1])
     # Pathway-Interaction:
-    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix_enrichment], weights=[1])
-    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[pathway_matrix_enrichment], weights=[1])
+    X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix_weights], weights=[1])
+    X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[pathway_matrix_weights], weights=[1])
     # Combination
     # X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix_indirect_05, pathway_matrix], weights=[0.5,0.5])
     # X_test = extension_with_multiple_task_features(X_test, y_test, task_feature_matrices=[dgi_matrix_indirect_05, pathway_matrix], weights=[0.5,0.5])
@@ -392,45 +393,86 @@ for k in range(1,4):
     # use model after training or load weights
     results = trainer.test(model)
 
-    # get error per drug
-    error_mtl_nn_results = np.concatenate((np.array(drug_list, ndmin=2).T,
-                            np.array(results[0]['test_task_losses_per_class'], ndmin=2).T), axis=1)
+    # MSE
+    predictions = results[0]['test_preds']  # [n_samples, n_tasks]
+    task_mses = results[0]['test_task_losses_per_class']
+    all_task_mses.append(task_mses)
 
+    # Pearson
+    num_tasks = y_test.shape[1]
+    pearson_corrs = []
+
+    for i in range(num_tasks):
+        true_vals = y_test[:, i]
+        pred_vals = predictions[:, i]
+        
+        mask = ~np.isnan(true_vals) & ~np.isnan(pred_vals)
+        if np.sum(mask) > 0:
+            corr, _ = pearsonr(true_vals[mask], pred_vals[mask])
+            pearson_corrs.append(corr)
+        else:
+            pearson_corrs.append(np.nan)
+
+    all_pearson_corrs.append(pearson_corrs)
+
+# In NumPy-Arrays umwandeln
+all_task_mses = np.array(all_task_mses)            # Shape: (3, num_tasks)
+all_pearson_corrs = np.array(all_pearson_corrs)    # Shape: (3, num_tasks)
+
+# Mittelwerte pro Task über Folds hinweg
+mean_task_mses = np.nanmean(all_task_mses, axis=0)
+mean_pearson_corrs = np.nanmean(all_pearson_corrs, axis=0)
+
+# Statistik über alle Tasks
+print("\n--- GEMITTELTE ERGEBNISSE ---")
+print("Durchschnittlicher MSE über alle Folds und Tasks:", np.nanmean(mean_task_mses))
+print("Median-MSE über Tasks:", np.nanmedian(mean_task_mses))
+
+print("Durchschnittliche Pearson-Korrelation über alle Folds und Tasks:", np.nanmean(mean_pearson_corrs))
+print("Median Pearson-Korrelation:", np.nanmedian(mean_pearson_corrs))
+
+# Mittelwerte
+mean_df = pd.DataFrame({
+    'Task': drug_list,
+    'Mean_MSE': mean_task_mses,
+    'Mean_Pearson': mean_pearson_corrs
+})
+mean_df.to_csv("mean_metrics_per_task_pathway_weights.csv", index=False)
 
 ## Analysis by MSE and Pearson Correlation 
 
-# MSE
-predictions = results[0]['test_preds']  # [n_samples, n_tasks]
-task_mses = results[0]['test_task_losses_per_class']
+# # MSE
+# predictions = results[0]['test_preds']  # [n_samples, n_tasks]
+# task_mses = results[0]['test_task_losses_per_class']
 
-print("Durchschnittlicher MSE über Tasks:", np.nanmean(task_mses))
-print("Median-MSE über Tasks:", np.nanmedian(task_mses))
+# print("Durchschnittlicher MSE über Tasks:", np.nanmean(task_mses))
+# print("Median-MSE über Tasks:", np.nanmedian(task_mses))
 
-# Save as csv file 
-df_errors = pd.DataFrame({'MSE_gene': task_mses}, index=drug_list)
-print(df_errors.head())
-df_errors.to_csv("task_mses_pathway_enrichment_zscore.csv", index_label='Drug')
+# # Save as csv file 
+# df_errors = pd.DataFrame({'MSE_gene': task_mses}, index=drug_list)
+# print(df_errors.head())
+# df_errors.to_csv("task_mses_pathway_enrichment_zscore.csv", index_label='Drug')
 
-# Pearson Correlation 
-num_tasks = y_test.shape[1]  # Number of Task
-pearson_corrs = []
+# # Pearson Correlation 
+# num_tasks = y_test.shape[1]  # Number of Task
+# pearson_corrs = []
 
-for i in range(num_tasks):
-    true_vals = y_test[:, i]
-    pred_vals = predictions[:, i]
+# for i in range(num_tasks):
+#     true_vals = y_test[:, i]
+#     pred_vals = predictions[:, i]
     
-    # NaN-Werte aussortieren, falls vorhanden
-    mask = ~np.isnan(true_vals) & ~np.isnan(pred_vals)
-    if np.sum(mask) > 0:
-        corr, _ = pearsonr(true_vals[mask], pred_vals[mask])
-        pearson_corrs.append(corr)
-    else:
-        pearson_corrs.append(np.nan)
+#     # NaN-Werte aussortieren, falls vorhanden
+#     mask = ~np.isnan(true_vals) & ~np.isnan(pred_vals)
+#     if np.sum(mask) > 0:
+#         corr, _ = pearsonr(true_vals[mask], pred_vals[mask])
+#         pearson_corrs.append(corr)
+#     else:
+#         pearson_corrs.append(np.nan)
 
-pearson_corrs = np.array(pearson_corrs)
+# pearson_corrs = np.array(pearson_corrs)
 
-print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
+# print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
 
-# Save as csv file 
-df_pearson = pd.DataFrame({'corr_gene': pearson_corrs}, index=drug_list)
-df_pearson.to_csv("task_pearson_pathway_enrichment_zscore.csv", index_label='Drug')
+# # Save as csv file 
+# df_pearson = pd.DataFrame({'corr_gene': pearson_corrs}, index=drug_list)
+# df_pearson.to_csv("task_pearson_pathway_enrichment_zscore.csv", index_label='Drug')

@@ -262,17 +262,37 @@ pcorr_list = []
 
 metrics_callback = MetricsCallback()
 
-for k in range(1,4):
-    
-    X_train = train_data_report['x_k_fold{}'.format(k)].values
-    X_test = test_data_report['x_k_fold{}'.format(k)].values
+import numpy as np
+import pandas as pd
+import torch
+from scipy.stats import pearsonr
+import random
+from pytorch_lightning import seed_everything
+import matplotlib.pyplot as plt
 
-    y_train = train_data_report['y_k_fold{}'.format(k)].values
-    y_test = test_data_report['y_k_fold{}'.format(k)].values
+# Listen zum Speichern von Vorhersagen und echten Labels pro Fold
+all_predictions = []
+all_y_true = []
+
+# Zwischenspeicher für Metriken (optional, wie vorher)
+all_task_mses = []
+all_pearson_corrs = []
+
+# Anzahl der Folds
+n_folds = 3
+
+for k in range(1, 4):
+    print(f"\n--- Fold {k} ---\n")
     
-    # Input dimensions
+    X_train = train_data_report[f'x_k_fold{k}'].values
+    X_test = test_data_report[f'x_k_fold{k}'].values
+
+    y_train = train_data_report[f'y_k_fold{k}'].values
+    y_test = test_data_report[f'y_k_fold{k}'].values
+    
     net_params['input_dim'] = X_train.shape[1]
 
+    # PyTorch Lightning Trainer
     trainer = pl.Trainer(
         max_epochs=net_params['epochs'],
         gpus=1 if torch.cuda.is_available() else None,
@@ -281,131 +301,126 @@ for k in range(1,4):
         reload_dataloaders_every_epoch=True
     )
 
-
+    # Seed für Reproduzierbarkeit
     seed = 42
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
     seed_everything(seed)
-    model = tugda_mtl(net_params, X_train, y_train,
-                  X_test, y_test)
-    
+
+    # Modell erstellen und trainieren
+    model = tugda_mtl(net_params, X_train, y_train, X_test, y_test)
     trainer.fit(model)
-    
-    # use model after training or load weights
-    results = trainer.test(model)
+    results = trainer.test(model, verbose=False)
 
-    # get error per drug
-    error_mtl_nn_results = np.concatenate((np.array(drug_list, ndmin=2).T,
-                            np.array(results[0]['test_task_losses_per_class'], ndmin=2).T), axis=1)
+    # Extrahiere Vorhersagen und echte Labels
+    predictions = results[0]['test_preds']  # [n_samples, n_tasks]
+    task_mses = results[0]['test_task_losses_per_class']
+    all_task_mses.append(task_mses)
 
-## Analysis by MSE and Pearson Correlation 
+    # Speichere y_test und predictions für spätere Aggregation
+    all_predictions.append(predictions)
+    all_y_true.append(y_test)
 
-# MSE
-predictions = results[0]['test_preds']  # [n_samples, n_tasks]
-task_mses = results[0]['test_task_losses_per_class']
-
-print("Durchschnittlicher MSE über Tasks:", np.nanmean(task_mses))
-print("Median-MSE über Tasks:", np.nanmedian(task_mses))
-
-error_mtl_nn_results = np.concatenate((np.array(drug_list, ndmin=2).T,
-                            np.array(task_mses, ndmin=2).T), axis=1)
-
-print(error_mtl_nn_results)
-
-# Save as csv file
-df_errors = pd.DataFrame({'MSE_baseline': task_mses}, index=drug_list)
-print(df_errors.head())
-df_errors.to_csv("task_mses.csv", index_label='Drug')
+    # Optional: Pearson pro Task und Fold (für Vergleich)
+    num_tasks = y_test.shape[1]
+    pearson_corrs = []
+    for i in range(num_tasks):
+        true_vals = y_test[:, i]
+        pred_vals = predictions[:, i]
+        mask = ~np.isnan(true_vals) & ~np.isnan(pred_vals)
+        if np.sum(mask) > 0:
+            corr, _ = pearsonr(true_vals[mask], pred_vals[mask])
+            pearson_corrs.append(corr)
+        else:
+            pearson_corrs.append(np.nan)
+    all_pearson_corrs.append(pearson_corrs)
 
 
-# Pearson Correlation 
-num_tasks = y_test.shape[1]  # Number of Task
-pearson_corrs = []
+# === AB HIER: AGGREGATION ÜBER ALLE FOLDS ===
 
-for i in range(num_tasks):
-    true_vals = y_test[:, i]
-    pred_vals = predictions[:, i]
-    
-    # NaN-Werte aussortieren, falls vorhanden
-    mask = ~np.isnan(true_vals) & ~np.isnan(pred_vals)
-    if np.sum(mask) > 0:
-        corr, _ = pearsonr(true_vals[mask], pred_vals[mask])
-        pearson_corrs.append(corr)
-    else:
-        pearson_corrs.append(np.nan)
+# Kombiniere alle Vorhersagen und echten Labels
+all_predictions = np.concatenate(all_predictions, axis=0)  # [n_total_samples, n_tasks]
+all_y_true = np.concatenate(all_y_true, axis=0)            # [n_total_samples, n_tasks]
 
-pearson_corrs = np.array(pearson_corrs)
+# Sicherstellen, dass NaNs korrekt behandelt werden
+mask_total = ~np.isnan(all_y_true) & ~np.isnan(all_predictions)
 
-print("Median Pearson Correlation:", np.nanmedian(pearson_corrs))
+# Globale Metriken über alle Samples und Tasks
+global_mse = np.mean((all_predictions[mask_total] - all_y_true[mask_total]) ** 2)
+global_pearson, _ = pearsonr(all_y_true[mask_total], all_predictions[mask_total])
 
-# Save as csv file 
-df_pearson = pd.DataFrame({'corr_baseline': pearson_corrs}, index=drug_list)
-df_pearson.to_csv("task_pearson_corrs.csv", index_label='Drug')
+print("\n--- GLOBALE ERGEBNISSE ÜBER ALLE FOLDS ---")
+print(f"Gesamter MSE über alle Folds und Tasks: {global_mse:.4f}")
+print(f"Globale Pearson-Korrelation: {global_pearson:.4f}")
 
-####################################################################################################
-# Outliers - Analysis
-stats_list = []
+# Metriken pro Task über alle Folds (Mittelwert über Folds, wie vorher)
+all_task_mses = np.array(all_task_mses)
+mean_task_mses = np.nanmean(all_task_mses, axis=0)
+mean_pearson_corrs = np.nanmean(np.array(all_pearson_corrs), axis=0)
 
-for idx, drug in enumerate(drug_list):
-    values = y_test[:, idx]
-    values_clean = values[~np.isnan(values)]
-    
-    stats = {
-        'Drug': drug,
-        'Tested_Samples': len(values_clean),
-        'Mean': np.mean(values_clean),
-        'Median': np.median(values_clean),
-        'Std': np.std(values_clean),
-        'Variance': np.var(values_clean),
-        'Skewness': skew(values_clean),
-        'CV': np.std(values_clean) / np.mean(values_clean) if np.mean(values_clean) != 0 else np.nan
-    }
-    stats_list.append(stats)
+print("\n--- MITTELWERTE PRO TASK ÜBER FOLDS ---")
+print("Durchschnittlicher MSE über Tasks:", np.nanmean(mean_task_mses))
+print("Median-MSE über Tasks:", np.nanmedian(mean_task_mses))
+print("Durchschnittliche Pearson über Tasks:", np.nanmean(mean_pearson_corrs))
+print("Median Pearson über Tasks:", np.nanmedian(mean_pearson_corrs))
 
-drug_stats_df = pd.DataFrame(stats_list)
-drug_stats_df.to_csv("drug_statistics.csv", index=False)
+# Speichere mittlere Metriken pro Task
+mean_df = pd.DataFrame({
+    'Task': drug_list,
+    'Mean_MSE': mean_task_mses,
+    'Mean_Pearson': mean_pearson_corrs
+})
+mean_df.to_csv("mean_metrics_per_task_baseline.csv", index=False)
 
-### Residual Analysis: 
 
-residuals = predictions - y_test  # [n_samples, n_tasks]
-top_bad_indices = np.argsort(task_mses)[-10:]  # Indices of tasks with the highest MSEs
+# === RESIDUENPLOTS FÜR AUSGEWÄHLTE TASKS (optional: z. B. schlechteste Tasks) ===
+# Lade die Drug-Liste (Spaltennamen)
+folder = 'data/'
+drug_list = pd.read_csv(f'{folder}/cl_y_test_o_k1.csv', index_col=0)
+drug_list = drug_list.columns.tolist()  # Sicherstellen, dass es eine Liste ist
 
-import matplotlib.pyplot as plt
-import os
+# Bestimme die schlechtesten Tasks basierend auf mittlerem MSE
+top_bad_indices = np.argsort(mean_task_mses)[-3:]  # z. B. die 3 schlechtesten Tasks
 
-# Create folder for results if not available
+# Erstelle den Ordner für Plots
+import os 
 os.makedirs("residual_plots", exist_ok=True)
 
-for task_id in top_bad_indices:
-    true_vals = y_test[:, task_id]
-    pred_vals = predictions[:, task_id]
+# Plot für die schlechtesten Tasks
+for task_idx in top_bad_indices:
+    true_vals = all_y_true[:, task_idx]
+    pred_vals = all_predictions[:, task_idx]
     
     mask = ~np.isnan(true_vals) & ~np.isnan(pred_vals)
+    if np.sum(mask) == 0:
+        continue
+        
     residuals = pred_vals[mask] - true_vals[mask]
-    
-    plt.figure(figsize=(10,4))
+    drug_name = drug_list[task_idx]  # Hier: Drug-Name statt Index
+
+    plt.figure(figsize=(10, 4))
 
     # Residuen vs. wahre Werte
-    plt.subplot(1,2,1)
+    plt.subplot(1, 2, 1)
     plt.scatter(true_vals[mask], residuals, alpha=0.6)
-    plt.axhline(0, color='red', linestyle='--')
-    plt.title(f"Task {task_id} - Residuen vs Wahre Werte")
-    plt.xlabel("y_true")
-    plt.ylabel("Residual (y_pred - y_true)")
+    plt.axhline(0, color='red', linestyle='--', linewidth=1)
+    plt.title(f"{drug_name} - Residuen vs. Wahre Werte")
+    plt.xlabel("Tatsächlicher Wert")
+    plt.ylabel("Residuum (ŷ - y)")
 
     # Histogramm der Residuen
-    plt.subplot(1,2,2)
+    plt.subplot(1, 2, 2)
     plt.hist(residuals, bins=30, edgecolor='black', alpha=0.7)
-    plt.title(f"Task {task_id} - Residuen Histogramm")
-    plt.xlabel("Residual")
+    plt.title(f"{drug_name} - Verteilung der Residuen")
+    plt.xlabel("Residuum")
     plt.ylabel("Häufigkeit")
 
     plt.tight_layout()
-    
-    # Speichere das Bild
-    plt.savefig(f"residual_plots/task_{task_id}.png")
-    plt.close() 
+
+    # Sichere Dateinamen: Sonderzeichen entfernen/ersetzen
+    safe_drug_name = "".join(c if c.isalnum() else "_" for c in drug_name)
+    plt.savefig(f"residual_plots/drug_{safe_drug_name}_combined_folds.png")
+    plt.close()
