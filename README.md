@@ -41,7 +41,7 @@ The project follows this sequential workflow:
    ```bash
    TUGDA_DA_extension.py: Includes addtional test and train features: DGI, DPI, PPI
 
-<u><strong>For the GNN-based approach run:</strong></u>
+<u><strong>In the future, for the GNN-based approach, run:</strong></u>
 1. Network Construction
    ```bash
    Network_Construction.py: Builds the initial graph structure, including direct and indirect targets and their pathway connections, using databases such as ChEMBL and BioGrid
