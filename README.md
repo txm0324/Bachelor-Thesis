@@ -36,10 +36,10 @@ The project follows this sequential workflow:
 <u><strong>For the naive approach run:</strong></u>
 1. TUGDA: MTL-Approach
    ```bash
-   TUGDA_MTL_naive.py: Includes addtional test and train features: DGI, DPI, PPI
+   TUGDA_MTL_extension.py: Includes addtional test and train features: DGI, DPI, PPI
 2. TUGDA: DA-Approach
    ```bash
-   TUGDA_DA_naive.py: Includes addtional test and train features: DGI, DPI, PPI
+   TUGDA_DA_extension.py: Includes addtional test and train features: DGI, DPI, PPI
 
 <u><strong>For the GNN-based approach run:</strong></u>
 1. Network Construction
@@ -53,19 +53,5 @@ The project follows this sequential workflow:
    Train_Test_Data.py: Splits the data into training and testing sets
 4. Model implentation 
    ```bash
-   Extension_TUGDA_MTL.py: Extension of TUGDA implementation with additional features
-
-## How to Run
-Execute the scripts in the following order: 
-
-<u><strong>For the TUGDA-Setup run:</strong></u>
-- python3 TUGDA_MTL.py // TUGDA_DA.py
-
-<u><strong>For the naive approach run:</strong></u>
-- python3 TUGDA_MTL_naive.py // TUGDA_DA_naive.py
-
-<u><strong>For the GNN-based approach run:</strong></u>
-- python3 Network_Construction.py
-- python3 build_matrix.py
-- python3 Extension_TUGDA_MTL.py
+   TUGDA_MTL_GNN.py: Extension of TUGDA implementation with additional features
   
