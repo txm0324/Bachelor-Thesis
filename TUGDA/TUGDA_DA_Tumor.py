@@ -467,4 +467,4 @@ df_preds = pd.DataFrame(preds, columns=drug_list)
 df_preds.index = [f"Patient_{i}" for i in range(210)]
 df_genes_pdx = pdx_dataset_na.iloc[:, :1780].copy()
 df_preds.index = df_genes_pdx.index
-df_preds.to_csv('preds_AUC_NA.csv', index=True)
+df_preds.to_csv('preds_AUC_TumorType.csv', index=True)

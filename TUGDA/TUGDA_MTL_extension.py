@@ -50,6 +50,28 @@ for k in range(1,4):
     test_data_report['x_k_fold{}'.format(k)] = pd.read_csv('{}/cl_x_test_o_k{}.csv'.format(folder, k), index_col=0)
     test_data_report['y_k_fold{}'.format(k)] = pd.read_csv('{}/cl_y_test_o_k{}.csv'.format(folder, k), index_col=0)
 
+
+# Extension data (from Networks/Network_Construction.py and Pathway_Construction.ipynb)
+
+# 1. Drug-Gene-Interaction
+dgi_matrix_direct = pd.read_csv("./data/Targets/direct/direct_targets.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_02 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.2.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_03 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.3.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_04 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.4.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_05 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.5.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_06 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.6.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_07 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.7.csv", index_col=0).astype(np.float32)
+
+# 2. Drug-Pathway-Interaction
+pathway_matrix = pd.read_csv("./data/Pathways/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
+pathway_matrix_count = pd.read_csv("./data/Pathways/gene_count_zscore.csv", index_col=0).astype(np.float32)
+pathway_matrix_frequency = pd.read_csv("./data/Pathways/gene_frequency.csv", index_col=0).astype(np.float32)
+pathway_matrix_weights = pd.read_csv("./data/Pathways/pathway_weights_zscore.csv", index_col=0).astype(np.float32)
+
+# preprocessing file 
+# gene and drug order should be the same!!!!
+dgi_matrix = dgi_matrix_direct.T.fillna(0.0).astype(float).values
+
 # Checks whether a GPU with CUDA support is available and recognized by PyTorch
 # Automatically selects 'cuda' or 'cpu' so you don't have to manually adjust the code
 # depending on whether you're running locally (CPU) or on a GPU-enabled server
@@ -71,7 +93,7 @@ class tugda_mtl(pl.LightningModule):
     # Constructor __init__
     # Initializes the model with parameters, data and network architecture
     def __init__(self, params, train_data, y_train,
-                 test_data, y_test
+                 test_data, y_test, dgi_matrix=None
                 ):
         super(tugda_mtl, self).__init__()
         
@@ -83,12 +105,16 @@ class tugda_mtl(pl.LightningModule):
         self.gamma = params['gamma']
         self.num_tasks = params['num_tasks']
         self.passes = params['passes']
+        self.lambda_dgi = params['lambda_dgi']
 
         # Training and test data are saved 
         self.train_data = train_data
         self.y_train = y_train
         self.test_data = test_data
         self.y_test = y_test
+
+        # dgi_tensor is stored in the module as a non-trainable tensor
+        self.register_buffer('dgi_tensor', torch.FloatTensor(dgi_matrix) if dgi_matrix is not None else None)
         
         # Three main network components are defined: 
 
@@ -167,11 +193,11 @@ class tugda_mtl(pl.LightningModule):
         return optimizer
     
     def optimizer_step(self, current_epoch, batch_nb, optimizer, optimizer_idx, 
-                       second_order_closure=None, on_tpu=False, using_native_amp=False, using_lbfgs=False):
+                       optimizer_closure, second_order_closure=None, on_tpu=False, using_native_amp=False, using_lbfgs=False):
         # update params of the model based on the current gradient
 
         # based on gradients that were previously calculated during the back propagation 
-        optimizer.step()
+        optimizer.step(closure=optimizer_closure)
         # gradient is accumlated by default (gradients are added to previous value) --> prevents that the gradient of different batches being added together 
         optimizer.zero_grad()
         
@@ -232,7 +258,43 @@ class tugda_mtl(pl.LightningModule):
         # autoencoder loss
         # measures how well the latent feature h can be reconstructed from predictions, gamma: weight for this loss 
         recon_loss = self.gamma * self.MSE_loss(h, h_hat)
-        
+
+        # loss for new data
+        dgi_reg_loss = 0.0
+        if self.dgi_tensor is not None: 
+
+        # Example:
+        # Genes: G1, G2, G3, G4 with Tasks: T1, T2
+        # DGI: (G1,T1), (G2,T1), (G2,T2), (G3,T2) are pairs with interactions (1)
+        # After the first layer we have a weight for each gene (mean of cell-line values):
+        # G1: 0.8, G2: 0.5, G3: 0.2, G4: 0.1
+        #
+        # Penalty T1:
+        # - G1: 0.8 --> (1 - 0.8)² = 0.04
+        # - G2: 0.5 --> (1 - 0.5)² = 0.25
+        # Mean of penalty: 0.145
+        #
+        # Penalty T2:
+        # - G2: 0.5 --> (1 - 0.5)² = 0.25
+        # - G3: 0.2 --> (1 - 0.2)² = 0.64
+        # Mean of penalty: 0.445
+
+            # Weight matrix of genes from the first layer
+            W = self.feature_extractor[0].weight  # [hidden, genes]
+            gene_importance = W.abs().mean(dim=0)  # [n_genes]
+
+            for k in range(self.num_tasks):
+                if k >= self.dgi_tensor.shape[1]:
+                    continue
+                dgi_mask = self.dgi_tensor[:, k] # [n_genes]
+                if dgi_mask.sum() > 0: # dgi_mask: Boolean tensor that indicates which genes are important for task k according to DGI 
+                    # Penalty: important genes should also have high weights
+                    imp_selected = gene_importance[dgi_mask.bool()]
+                    penalty = ((1.0 - imp_selected).clamp(min=0)) ** 2 # penalty not negative 
+                    dgi_reg_loss += penalty.mean()
+                
+        dgi_reg_loss = self.lambda_dgi * dgi_reg_loss
+
         # loss weighting based on uncertainty and decoder structure 
         # a: weight per drug, depending one: decoder complexity (decoder A) and uncertainty due to missing data
         a = 1 + (total_unc + torch.sum(torch.abs(self.A[0].weight.T),1))
@@ -248,7 +310,7 @@ class tugda_mtl(pl.LightningModule):
         l2_L = self.lambda_ * L
 
         # total loss
-        total_loss = loss_weight + recon_loss + l1_S + l2_L
+        total_loss = loss_weight + recon_loss + l1_S + l2_L + dgi_reg_loss
         return total_loss, task_loss
     
 
@@ -311,6 +373,7 @@ net_params = {
  'dropout': 0.1,
  'mu': 0.01,
  'lambda_': 0.001,
+ 'lambda_dgi': 0.001, # add regulation for new data
  'gamma': 0.0001,
  'bs': 300,
  'passes': 50,
@@ -354,7 +417,7 @@ for k in range(1, 4):
     seed_everything(seed)
 
     # Create and train model
-    model = tugda_mtl(net_params, X_train, y_train, X_test, y_test)
+    model = tugda_mtl(net_params, X_train, y_train, X_test, y_test, dgi_matrix=dgi_matrix)
     trainer.fit(model)
     results = trainer.test(model, verbose=False)
 

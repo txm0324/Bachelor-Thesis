@@ -31,6 +31,28 @@ from pytorch_lightning import Callback
 # seed_everything: sets randoms seeds for reproducibility 
 from pytorch_lightning import seed_everything
 
+
+# Extension 
+
+# 1. Drug-Gene-Interaction
+dgi_matrix_direct = pd.read_csv("./data/Targets/direct/direct_targets.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_02 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.2.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_03 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.3.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_04 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.4.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_05 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.5.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_06 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.6.csv", index_col=0).astype(np.float32)
+dgi_matrix_indirect_07 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.7.csv", index_col=0).astype(np.float32)
+
+# 2. Drug-Pathway-Interaction
+pathway_matrix = pd.read_csv("./data/Pathways/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
+pathway_matrix_count = pd.read_csv("./data/Pathways/gene_count_zscore.csv", index_col=0).astype(np.float32)
+pathway_matrix_frequency = pd.read_csv("./data/Pathways/gene_frequency.csv", index_col=0).astype(np.float32)
+pathway_matrix_weights = pd.read_csv("./data/Pathways/pathway_weights_zscore.csv", index_col=0).astype(np.float32)
+
+# preprocessing file 
+# gene and drug order should be the same!!!!
+dgi_matrix = dgi_matrix_direct.T.fillna(0.0).astype(float).values
+
 # Checks whether a GPU with CUDA support is available and recognized by PyTorch
 # Automatically selects 'cuda' or 'cpu' so you don't have to manually adjust the code
 # depending on whether you're running locally (CPU) or on a GPU-enabled server
@@ -74,7 +96,7 @@ class tugda_da(pl.LightningModule):
     # Constructor __init__
     # Initializes the model with parameters, data and network architecture
     def __init__(self, params, train_data, y_train, x_target_unl,
-                 test_data, y_test, y_test_da
+                 test_data, y_test, y_test_da, dgi_matrix=None
                 ):
         super(tugda_da, self).__init__()
         
@@ -89,11 +111,15 @@ class tugda_da(pl.LightningModule):
         self.n_epoch = params['n_epochs']
         self.passes = params['passes']
         self.num_tasks = params['num_tasks']
+        self.lambda_dgi = params['lambda_dgi']
 
         # Training and test data are saved 
         self.train_data = train_data
         self.y_train = y_train
         self.x_target_unl = x_target_unl
+
+        # dgi_tensor is stored in the module as a non-trainable tensor
+        self.register_buffer('dgi_tensor', torch.FloatTensor(dgi_matrix) if dgi_matrix is not None else None)
         
         # Three main network components are defined: 
 
@@ -252,60 +278,8 @@ class tugda_da(pl.LightningModule):
         # Purpose: ,easures the reconstruction error of the autoencoder, small error indicates that the latent representation contains enough information to reconstruct itself from predictions
         return mse_loss(x, x_hat)
     
-    def bce_ignore_nan(self, preds, labels):
-        """
-        Binary Cross-Entropy mit NaN-Handling und pro-Drug-Loss-Rückgabe.
-        Gibt zurück:
-            - total_loss: Skalar (gemittelter Loss über alle Drugs/Patienten)
-            - per_task_loss: Tensor mit Loss pro Drug (für Weighting)
-
-            
-        2. Warum MSE-Loss nicht passt
-
-        MSE (Mean Squared Error):
-
-            Entwickelt für kontinuierliche Werte (z. B. AUC-Werte zwischen 0–1).
-
-            Bestraft große Abweichungen quadratisch (für 0/1-Labels suboptimal).
-
-            Kann zwar NaN ignorieren (mse_ignore_nan), ist aber für Klassifikation ungeeignet.
-
-        Problem:
-        MSE behandelt eine Vorhersage von 0.9 für ein Label 1 genauso wie 0.1 für 0 (symmetrischer Fehler).
-        Für Klassifikation wollen Sie jedoch:
-
-            Hohe Strafe, wenn das Modell 0.1 für 1 vorhersagt (falsches Sicherheitsgefühl!).
-
-            BCE-Loss tut dies durch die logarithmische Strafe.
-
-        Vorteile für Ihren Fall:
-
-        Optimal für binäre Labels: Strafe für falsch zuversichtliche Vorhersagen (z. B. p=0.1p=0.1 bei y=1y=1).
-
-        Kann NaN-Labels ignorieren (durch Maskierung, siehe bce_ignore_nan).
-
-        Interpretierbare Ausgabe: Vorhersagen sind Wahrscheinlichkeiten (Sigmoid-Ausgabe).
-
-        """
-        per_task_loss = torch.zeros(labels.size(1), device=device)  # Loss pro Drug
-        
-        for k in range(labels.size(1)):
-            mask = ~torch.isnan(labels[:, k])
-            if torch.sum(mask) > 0:  # Nur berechnen, wenn nicht alle NaN
-                bce_loss = torch.nn.BCELoss()
-                per_task_loss[k] = bce_loss(
-                    preds[mask, k], 
-                    labels[mask, k].float()
-                )
-            else:
-                per_task_loss[k] = torch.tensor(0.0, device=device)  # Kein Beitrag zum Loss
-        
-        total_loss = torch.mean(per_task_loss[~torch.isnan(per_task_loss)])
-        return total_loss, per_task_loss
-    
      # calculates the total loss for a batch 
     def forward_pass(self, fw_batch, batch_idx):
-        # Source-Data (GDSC: Features + AUC-values)
         x, y = fw_batch[0]
         # unlabelled data (target)
         unl = fw_batch[1][0]
@@ -334,8 +308,29 @@ class tugda_da(pl.LightningModule):
         total_unc = torch.mean(preds_var, axis=0)
 
 
-        m_loss, task_loss = self.bce_ignore_nan(preds_mean, y)
+        m_loss, task_loss = self.mse_ignore_nan(preds_mean, y)
         recon_loss = self.gamma * self.MSE_loss(h, h_hat)
+
+        # loss for new data
+        dgi_reg_loss = 0.0
+        if self.dgi_tensor is not None:
+
+            # Weight matrix of genes from the first layer
+            W = self.feature_extractor[0].weight  # [hidden, genes]
+            gene_importance = W.abs().mean(dim=0)  # [n_genes]
+
+            total_penalty = 0.0
+            for k in range(self.num_tasks):
+                if k >= self.dgi_tensor.shape[1]:
+                    continue
+                dgi_mask = self.dgi_tensor[:, k] # [n_genes]
+                if dgi_mask.sum() > 0: # dgi_mask: Boolean tensor that indicates which genes are important for task k according to DGI 
+                    # Penalty: important genes should also have high weights
+                    imp_selected = gene_importance[dgi_mask.bool()]
+                    penalty = ((1.0 - imp_selected).clamp(min=0)) ** 2 # penalty not negative 
+                    total_penalty += penalty.mean()
+            
+        dgi_reg_loss = self.lambda_dgi * total_penalty
 
         # loss weighting based on uncertainty and decoder structure 
         # a: weight per drug, depending one: decoder complexity (decoder A) and uncertainty due to missing data
@@ -367,13 +362,13 @@ class tugda_da(pl.LightningModule):
         # ones = torch.ones(unl.size(0), device=self.device)
         ones = torch.ones_like(domain_out_target) 
         d_loss_target = self.binary_classification_loss(domain_out_target, ones)
-        
+
         # Combination of source and target domain errors 
         # Goal: discriminator should correctly seperate between source (0) and target (1)
         d_loss = d_loss_source + d_loss_target
 
         # total loss
-        loss = loss_weight + recon_loss + l1_S + l2_L + (self.lambda_disc *d_loss)
+        loss = loss_weight + recon_loss + l1_S + l2_L + (self.lambda_disc *d_loss) + dgi_reg_loss
         return loss, m_loss, d_loss
 
     # per training_step:
@@ -429,85 +424,23 @@ class tugda_da(pl.LightningModule):
         return {'preds': preds_mean.detach().cpu().numpy()
                 }
 
-# Supp Table. 5. Best settings found for DA (TCGA) with source MSE (cell line data)
+# best set of hyperparameters found on validation settings;
 net_params = {
- 'hidden_units_1': 1024, # Number of neurons in the first hidden layer 
- 'latent_space': 900, # size of latent_space (e.g. for embeddings or autoencoder components)
+ 'hidden_units_1': 1500, # Number of neurons in the first hidden layer 
+ 'latent_space': 800, # size of latent_space (e.g. for embeddings or autoencoder components)
  'lr': 0.001, # Learning rate - how much the modul adjusts the weights at each step 
  'dropout': 0.1, # Droupout rate - percentage of neurons that are randomly deactivated to avoid overfitting 
- 'mu': 0.01,
- 'lambda_': 0.0001,
+ 'mu': 1,
+ 'lambda_': 1,
+ 'lambda_dgi': 1,
  'gamma': 0.01,
  'n_units_disc': 500,# Number of neurons in the Discriminator-Network 
  'n_epochs': 50, # How often the model runs through the entire training data set
- 'bs_disc': 512, # Batches size for discriminator (how many training examples are entered inot the discriminator per step)
+ 'bs_disc': 64, # Batches size for discriminator (how many training examples are entered inot the discriminator per step)
  'bs_source': 300, # Batch Size - how many training examples are processed at once 
- 'lambda_disc': 0.2,
+ 'lambda_disc': 0.3,
  'num_tasks': 200, # Number of drug variables
  'passes': 50} # how often the models goes over the datra per epoch 
-
-## for Drug-Gen-Interactions (DGI), Drug-Pathway-Interactions (DPI) and Protein-Protein-Interactions (PPI)
-
-def extension_with_multiple_task_features(X, y, task_feature_matrices, weights=None):
-    """
-    Extension of the feature matrix X with DGI vectors based on labels in y.
-
-    Inputs:
-    - X: np.array [N_samples (cell lines) x n_genes], gene expression
-
-    X_train: (536, 1780) = [N_samples (cell lines from 2 folds) x n_genes]
-    X_test: (269, 1780) = [N_samples (cell lines from 1 fold) x n_genes]
-
-    - y: np.array [N_samples (cell lines) x n_tasks (drugs)], drug responses (e.g. IC50, AUC)
-
-    Y_train: (536, 200) = [N_samples (cell lines from 2 folds) x n_tasks (200 drugs)]
-    Y_test: (269, 200) = [N_samples (cell lines from 1 fold) x n_tasks (200 drugs)]
-
-    - dgi_matrix: torch.tensor [n_tasks x n_genes], drug-gene interactions (0/1 or normalized)
-
-    dgi_matrix [n_tasks (200 drugs) x n_genes (1780)]
-    
-    Output:
-    - X_extension: np.array [N_samples x (n_genes + n_genes)]
-
-    X_train_extension: (536, 3560) = [N_samples (cell lines from 2 folds) + 2* n_genes]
-    X_test_extension: (269, 3560) = [N_samples (cell lines from 1 fold) + 2* n_genes]
-
-    """
-
-    # If no weights are specified, each matrix is given the same weight.
-    if weights is None:
-        n_weights = len(task_feature_matrices)
-        weights = [1.0 / n_weights for _ in range(n_weights)]
-    elif len(weights) != len(task_feature_matrices):
-        raise ValueError("The number of weights must match the number of matrices")
-
-    X_ext = []
-
-    # Iterate over each sample in X
-    for i in range(X.shape[0]):
-        # Find all task indices (drugs) for which the sample has a valid (non-NaN) label
-        task_indices = np.where(~np.isnan(y[i]))[0]
-        
-        # Raise an error if the sample has no valid label
-        if len(task_indices) == 0:
-            raise ValueError(f"Sample {i} does not have a valid label assignment.")
-        
-        # Select the first valid task index for this sample
-        task_idx = task_indices[0]
-
-        # Retrieve and weight all feature vectors for the selected task from each task-specific matrix
-        feature_vecs = [
-            weight * matrix.iloc[task_idx].values
-            for weight, matrix in zip(weights, task_feature_matrices)
-        ]
-
-        # Concatenate the original feature vector with the weighted task-specific vectors
-        x_aug = np.concatenate([X[i]] + feature_vecs)
-        X_ext.append(x_aug)
-
-    # Stack all extended feature vectors into a single matrix
-    return np.stack(X_ext)
 
 
 # training and testing
@@ -522,7 +455,8 @@ gene_list = gdsc_dataset.columns[0:1780]
 drug_list = gdsc_dataset.columns[1780:]
 
 # pdx novartis dataset;
-pdx_dataset = pd.read_csv('./data/PDX_UMG_Final.csv', index_col=0)
+# for UMG data: pdx_dataset = pd.read_csv('./data/PDX_UMG_Final.csv', index_col=0)
+pdx_dataset = pd.read_csv('./data/PDX_MTL_DA.csv', index_col=0)
 drugs_pdx = pdx_dataset.columns[1780:]
 
 # genes and drug are extracted from the gdsc_dataset
@@ -534,35 +468,12 @@ drug_list = gdsc_dataset.columns[1780:]
 X_train = gdsc_dataset[gene_list].values
 y_train = gdsc_dataset[drug_list].values
 
-# Extension  
-
-# 1. Drug-Gene-Interaction
-dgi_matrix_direct = pd.read_csv("./data/Targets/direct/direct_targets.csv", index_col=0).astype(np.float32)
-dgi_matrix_indirect_05 = pd.read_csv("./data/Targets/indirect/indirect_targets_0.5.csv", index_col=0).astype(np.float32)
-
-# 2. Drug-Pathway-Interaction
-pathway_matrix = pd.read_csv("./data/drug_pathway_binary_matrix.csv", index_col=0).astype(np.float32)
-pathway_matrix_count = pd.read_csv("./data/gene_count_zscore.csv", index_col=0).astype(np.float32)
-pathway_matrix_weights = pd.read_csv("./data/pathway_weights_zscore.csv", index_col=0).astype(np.float32)
-
-# Gene-Interaction:
-
-# X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix], weights=[1])
-# Pathway-Interaction:
-X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[pathway_matrix_weights], weights=[1])
-# Combination
-# X_train = extension_with_multiple_task_features(X_train, y_train, task_feature_matrices=[dgi_matrix, pathway_matrix], weights=[0.5, 0.5])
-
-# Input dimensions
-net_params['input_dim'] = X_train.shape[1]
-
 # Test data also extracted from another dataset (pdx_dataset)
 X_test = pdx_dataset[gene_list].values
 y_test = pdx_dataset[drugs_pdx].values
 
 X_train_unl = pdx_dataset[gene_list].values
-y_train_unl_dummy = np.zeros((X_train_unl.shape[0], y_train.shape[1]))  # Dummy labels
-X_train_unl = extension_with_multiple_task_features(X_train_unl, y_train_unl_dummy, task_feature_matrices=[pathway_matrix_weights], weights=[1])
+
 
 # Trainer configuration
 trainer = pl.Trainer(
@@ -584,7 +495,7 @@ torch.backends.cudnn.benchmark = False
 # creates the model with current fold data, fit: starts the training
 seed_everything(seed)
 model = tugda_da(net_params, X_train, y_train, X_train_unl,
-              X_train, y_train, y_test)
+              X_train, y_train, y_test, dgi_matrix=dgi_matrix)
 
 trainer.fit(model)
 
@@ -599,11 +510,8 @@ drug_list = list(gdsc_dataset.columns[1780:])
 assert preds.shape[1] == len(drug_list), f"Mismatch: {preds.shape[1]} vs {len(drug_list)}"
 
 df_preds = pd.DataFrame(preds, columns=drug_list)
-df_preds.index = [f"Patient_{i}" for i in range(46)]
+df_preds.index = [f"Patient_{i}" for i in range(399)]
 df_genes_pdx = pdx_dataset.iloc[:, :1780].copy()
 df_preds.index = df_genes_pdx.index
 
-# Name for specific variant
-df_preds.to_csv('./preds_AUC_pathway_weight_bce_loss_new_parameter_Goe.csv', index=True)
-# df_preds.to_csv('./preds_AUC_naiv_pathway_level.csv', index=True)
-# df_preds.to_csv('./results/preds_AUC_naiv_combination.csv', index=True)
+df_preds.to_csv('./results/DA/DA_extension.csv', index=True)
