@@ -32,6 +32,8 @@ from pytorch_lightning import Callback
 # seed_everything: sets randoms seeds for reproducibility 
 from pytorch_lightning import Trainer, seed_everything
 
+from scipy.stats import pearsonr # to calculate the correlation
+
 # get list of 200 drugs to be used for training and prediction (here: 200 drugs)
 folder = 'data/'
 drug_list = pd.read_csv('{}/cl_y_test_o_k1.csv'.format(folder), index_col=0 )
@@ -404,4 +406,4 @@ mean_df = pd.DataFrame({
     'Mean_MSE': task_mses,
     'Mean_Pearson': task_pearsons
 })
-mean_df.to_csv("./results/MTLmean_metrics_per_task_baseline.csv", index=False)
+mean_df.to_csv("./results/MTL/mean_metrics_per_task_baseline.csv", index=False)

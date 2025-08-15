@@ -51,6 +51,7 @@ pathway_matrix_weights = pd.read_csv("./data/Pathways/pathway_weights_zscore.csv
 
 # preprocessing file 
 # gene and drug order should be the same!!!!
+# here you habe to change with approach you want to use
 dgi_matrix = dgi_matrix_direct.T.fillna(0.0).astype(float).values
 
 # Checks whether a GPU with CUDA support is available and recognized by PyTorch

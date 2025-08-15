@@ -32,6 +32,8 @@ from pytorch_lightning import Callback
 # seed_everything: sets randoms seeds for reproducibility 
 from pytorch_lightning import Trainer, seed_everything
 
+from scipy.stats import pearsonr # to calculate the correlation
+
 # get list of 200 drugs to be used for training and prediction (here: 200 drugs)
 folder = 'data/'
 drug_list = pd.read_csv('{}/cl_y_test_o_k1.csv'.format(folder), index_col=0 )
@@ -70,7 +72,8 @@ pathway_matrix_weights = pd.read_csv("./data/Pathways/pathway_weights_zscore.csv
 
 # preprocessing file 
 # gene and drug order should be the same!!!!
-dgi_matrix = dgi_matrix_direct.T.fillna(0.0).astype(float).values
+# here you habe to change with approach you want to use
+dgi_matrix = dgi_matrix_indirect_05.T.fillna(0.0).astype(float).values
 
 # Checks whether a GPU with CUDA support is available and recognized by PyTorch
 # Automatically selects 'cuda' or 'cpu' so you don't have to manually adjust the code
@@ -467,4 +470,4 @@ mean_df = pd.DataFrame({
     'Mean_MSE': task_mses,
     'Mean_Pearson': task_pearsons
 })
-mean_df.to_csv("./results/MTLmean_metrics_per_task_baseline.csv", index=False)
+mean_df.to_csv("./results/MTL/mean_metrics_per_task_indirect_05.csv", index=False)
