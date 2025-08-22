@@ -4,7 +4,7 @@ This repository contains the code implementation for my Bachelor Thesis titled "
 
 ## Prerequisites 
 
-Before running the code, please ensure you have the following installed: @ToDo
+Before running the code, please ensure you have the following installed:
 
 - Python 3.x
 - Required Python libraries (listed in `requirements.txt`)
