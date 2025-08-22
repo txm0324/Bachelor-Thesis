@@ -1,0 +1,31 @@
+# Numerics
+numpy==1.23.5
+scipy==1.4.1
+pandas==2.0.3
+
+# Plotting
+matplotlib==3.7.2
+seaborn==0.13.2
+
+# Machine Learning
+scikit-learn==0.24.2
+
+# Deep Learning (PyTorch)
+torch==2.2.2+cu121
+torchvision==0.17.2+cu121
+torchaudio==2.2.2+cu121
+torch-geometric==2.6.1
+pytorch-lightning==0.9.0
+torchmetrics==1.5.2
+
+# Deep Learning (TensorFlow)
+tensorflow==2.2.0
+tensorboard==2.2.0
+
+# Help libraries 
+tqdm==4.67.1
+requests==2.32.3
+jupyter==1.1.1
+notebook==7.3.3
+ipywidgets==8.1.6
+chembl-webresource-client==0.10.9
