@@ -1,5 +1,4 @@
 # Bachelor Thesis Project: Optimizing the prediction of oncological drug responses by integrating biological network information into the deep learning framework [TUGDA](https://github.com/CSB5/TUGDA)
-- token: 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
 
 This repository contains the code implementation for my Bachelor Thesis titled "Optimizing the Prediction of Oncological Drug Responses by Integrating Biological Network Information into the Deep Learning Framework TUGDA." The project focuses on evaluating the performance of TUGDA in predicting drug responses based on omics data, with the aim of improving its accuracy through the integration of biological extensions. To achieve this, interactions such as drug–gene (DGI), drug–pathway (DPI), and protein–protein interactions (PPI) are incorporated into the model architecture. 
 
